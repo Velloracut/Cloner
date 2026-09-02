@@ -1,0 +1,9 @@
+{
+  "cloneId": "example01",
+  "appName": "Example Clone",
+  "applicationId": "com.example.clone",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "output": "apk",
+  "buildType": "release"
+}
