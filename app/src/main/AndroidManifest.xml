@@ -18,7 +18,7 @@
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="Dual App"
+        android:label="Cloner"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.DualApp">
@@ -26,7 +26,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="Dual App"
+            android:label="Cloner"
             android:theme="@style/Theme.DualApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
