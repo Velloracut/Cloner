@@ -1,11 +1,8 @@
-name: Build Dual App
+name: Build Cloner
 
 on:
   push:
     branches: [main]
-    paths:
-      - "DualApp/**"
-      - ".github/workflows/build-dualapp.yml"
   workflow_dispatch:
     inputs:
       build_type:
@@ -40,17 +37,15 @@ jobs:
 
       - name: Build debug APK
         if: (inputs.build_type || 'debug') == 'debug'
-        working-directory: DualApp
         run: ./gradlew assembleDebug
 
       - name: Build release APK
         if: inputs.build_type == 'release'
-        working-directory: DualApp
         run: ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DualApp-apk
-          path: DualApp/app/build/outputs/apk/**/*.apk
+          name: Cloner-apk
+          path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
