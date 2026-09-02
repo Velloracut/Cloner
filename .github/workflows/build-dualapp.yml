@@ -1,0 +1,56 @@
+name: Build Dual App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "DualApp/**"
+      - ".github/workflows/build-dualapp.yml"
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Build type
+        required: false
+        default: debug
+        type: choice
+        options: [debug, release]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: false
+          gradle-home-cache-cleanup: true
+
+      - name: Build debug APK
+        if: (inputs.build_type || 'debug') == 'debug'
+        working-directory: DualApp
+        run: ./gradlew assembleDebug
+
+      - name: Build release APK
+        if: inputs.build_type == 'release'
+        working-directory: DualApp
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualApp-apk
+          path: DualApp/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
