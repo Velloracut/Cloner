@@ -84,7 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf clone-workspace
-          cp -R app clone-workspace
+          mkdir -p clone-workspace/app
+          cp -R app/. clone-workspace/app/
           python3 - <<'PY'
           from pathlib import Path
           import os
@@ -113,6 +114,7 @@ jobs:
           cp build.gradle.kts clone-workspace/
           cp gradle.properties clone-workspace/
           if [ -f gradlew ]; then cp gradlew clone-workspace/; chmod +x clone-workspace/gradlew; fi
+          if [ -d gradle ]; then cp -R gradle clone-workspace/; fi
 
       - name: Build debug APK
         if: (inputs.build_type || 'release') == 'debug'
