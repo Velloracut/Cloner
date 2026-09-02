@@ -34,7 +34,7 @@ on:
       build_type:
         description: Build type
         required: false
-        default: release
+        default: debug
         type: choice
         options: [debug, release]
 
@@ -117,17 +117,17 @@ jobs:
           if [ -d gradle ]; then cp -R gradle clone-workspace/; fi
 
       - name: Build debug APK
-        if: (inputs.build_type || 'release') == 'debug'
+        if: (inputs.build_type || 'debug') == 'debug'
         working-directory: clone-workspace
         run: ./gradlew assembleDebug
 
       - name: Build release APK
-        if: (inputs.build_type || 'release') == 'release' && (inputs.output || 'apk') == 'apk'
+        if: (inputs.build_type || 'debug') == 'release' && (inputs.output || 'apk') == 'apk'
         working-directory: clone-workspace
         run: ./gradlew assembleRelease
 
       - name: Build release AAB
-        if: (inputs.build_type || 'release') == 'release' && (inputs.output || 'apk') == 'aab'
+        if: (inputs.build_type || 'debug') == 'release' && (inputs.output || 'apk') == 'aab'
         working-directory: clone-workspace
         run: ./gradlew bundleRelease
 
