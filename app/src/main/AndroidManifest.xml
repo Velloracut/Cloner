@@ -1,19 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!--
-      Required on Android 11+ (API 30+) to see the full list of installed
-      apps via PackageManager. Without this, queryIntentActivities() only
-      returns a small subset of "visible" packages.
-
-      NOTE: Google Play restricts this permission — apps that request it
-      must declare an approved use-case in Play Console (e.g. "app
-      management" / "device search"), or the listing can be rejected.
-      See: https://support.google.com/googleplay/android-developer/answer/10158779
-    -->
+    <!-- Needed on Android 11+ to see the full installed-apps list -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission"
-        xmlns:tools="http://schemas.android.com/tools" />
+        tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:allowBackup="true"
