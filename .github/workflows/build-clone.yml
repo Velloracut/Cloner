@@ -1,35 +1,39 @@
 name: Build App Clone
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       app_name:
         description: Clone app name
-        required: true
+        required: false
+        default: AppClone
         type: string
       application_id:
         description: Android applicationId
-        required: true
+        required: false
+        default: com.lomivox.appcloner
         type: string
       version_name:
         description: Version name
-        required: true
+        required: false
         default: 1.0.0
         type: string
       version_code:
         description: Version code
-        required: true
+        required: false
         default: "1"
         type: string
       output:
         description: Output format
-        required: true
+        required: false
         default: apk
         type: choice
         options: [apk, aab]
       build_type:
         description: Build type
-        required: true
+        required: false
         default: release
         type: choice
         options: [debug, release]
@@ -61,8 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_ID="${{ inputs.application_id }}"
-          VERSION_CODE="${{ inputs.version_code }}"
+          APP_ID="${{ inputs.application_id || 'com.lomivox.appcloner' }}"
+          VERSION_CODE="${{ inputs.version_code || '1' }}"
           if [[ ! "$APP_ID" =~ ^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$ ]]; then
             echo "Invalid applicationId"; exit 1
           fi
@@ -73,10 +77,10 @@ jobs:
       - name: Prepare clone
         shell: bash
         env:
-          APP_NAME: ${{ inputs.app_name }}
-          APPLICATION_ID: ${{ inputs.application_id }}
-          VERSION_NAME: ${{ inputs.version_name }}
-          VERSION_CODE: ${{ inputs.version_code }}
+          APP_NAME: ${{ inputs.app_name || 'AppClone' }}
+          APPLICATION_ID: ${{ inputs.application_id || 'com.lomivox.appcloner' }}
+          VERSION_NAME: ${{ inputs.version_name || '1.0.0' }}
+          VERSION_CODE: ${{ inputs.version_code || '1' }}
         run: |
           set -euo pipefail
           rm -rf clone-workspace
@@ -111,32 +115,32 @@ jobs:
           if [ -f gradlew ]; then cp gradlew clone-workspace/; chmod +x clone-workspace/gradlew; fi
 
       - name: Build debug APK
-        if: inputs.build_type == 'debug'
+        if: (inputs.build_type || 'release') == 'debug'
         working-directory: clone-workspace
         run: ./gradlew assembleDebug
 
       - name: Build release APK
-        if: inputs.build_type == 'release' && inputs.output == 'apk'
+        if: (inputs.build_type || 'release') == 'release' && (inputs.output || 'apk') == 'apk'
         working-directory: clone-workspace
         run: ./gradlew assembleRelease
 
       - name: Build release AAB
-        if: inputs.build_type == 'release' && inputs.output == 'aab'
+        if: (inputs.build_type || 'release') == 'release' && (inputs.output || 'apk') == 'aab'
         working-directory: clone-workspace
         run: ./gradlew bundleRelease
 
       - name: Upload APK
-        if: inputs.output == 'apk'
+        if: (inputs.output || 'apk') == 'apk'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-apk
+          name: ${{ inputs.app_name || 'AppClone' }}-apk
           path: clone-workspace/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
       - name: Upload AAB
-        if: inputs.output == 'aab'
+        if: (inputs.output || 'apk') == 'aab'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-aab
+          name: ${{ inputs.app_name || 'AppClone' }}-aab
           path: clone-workspace/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
