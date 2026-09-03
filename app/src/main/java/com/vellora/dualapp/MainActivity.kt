@@ -37,7 +37,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.vellora.dualapp.data.AppDatabase
+import com.vellora.dualapp.data.ClonedAppEntity
 import com.vellora.dualapp.ui.theme.DualAppTheme
+import kotlinx.coroutines.launch
 
 // ---------- Data model ----------
 
@@ -74,10 +77,23 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DualAppRoot() {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = remember { AppDatabase.getInstance(context) }
 
-    // Simple in-memory state for now — cloned apps list is NOT persisted yet.
-    // TODO: back this with real storage (Room) so it survives app restarts.
-    val clonedApps = remember { mutableStateListOf<ClonedApp>() }
+    // Persisted via Room — survives app restarts. Each Android profile
+    // (personal vs. work) has its own separate database file automatically.
+    val clonedEntities by db.clonedAppDao().getAll().collectAsState(initial = emptyList())
+    val clonedApps = remember(clonedEntities) {
+        clonedEntities.map { entity ->
+            ClonedApp(
+                id = entity.id,
+                label = entity.label,
+                originalPackageName = entity.packageName,
+                icon = loadAppIcon(context.packageManager, entity.packageName)
+            )
+        }
+    }
+
     var showAppPicker by remember { mutableStateOf(false) }
     var pendingApp by remember { mutableStateOf<InstalledApp?>(null) }
 
@@ -106,7 +122,13 @@ fun DualAppRoot() {
                 title = "Clone apps here",
                 clonedApps = clonedApps,
                 onAddClick = { showAppPicker = true },
-                onRemoveClick = { app -> clonedApps.remove(app) },
+                onRemoveClick = { app ->
+                    scope.launch {
+                        db.clonedAppDao().delete(
+                            ClonedAppEntity(app.id, app.label, app.originalPackageName)
+                        )
+                    }
+                },
                 onTileClick = { /* nothing to launch from inside the work profile itself */ }
             )
         } else if (!profileReady) {
@@ -120,7 +142,13 @@ fun DualAppRoot() {
                 title = "Cloned Apps",
                 clonedApps = clonedApps,
                 onAddClick = { showAppPicker = true },
-                onRemoveClick = { app -> clonedApps.remove(app) },
+                onRemoveClick = { app ->
+                    scope.launch {
+                        db.clonedAppDao().delete(
+                            ClonedAppEntity(app.id, app.label, app.originalPackageName)
+                        )
+                    }
+                },
                 onTileClick = { app ->
                     val launched = WorkProfileManager.launchClonedApp(context, app.originalPackageName)
                     if (!launched) {
@@ -157,14 +185,15 @@ fun DualAppRoot() {
                             Toast.LENGTH_LONG
                         ).show()
                     }
-                    clonedApps.add(
-                        ClonedApp(
-                            id = System.currentTimeMillis(),
-                            label = app.label,
-                            originalPackageName = app.packageName,
-                            icon = app.icon
+                    scope.launch {
+                        db.clonedAppDao().insert(
+                            ClonedAppEntity(
+                                id = System.currentTimeMillis(),
+                                label = app.label,
+                                packageName = app.packageName
+                            )
                         )
-                    )
+                    }
                     pendingApp = null
                 },
                 onCancel = { pendingApp = null }
@@ -379,6 +408,19 @@ fun AppIcon(drawable: Drawable, sizeDp: Int) {
         contentDescription = null,
         modifier = Modifier.size(sizeDp.dp)
     )
+}
+
+/**
+ * Loads an installed app's icon by package name at runtime. Icons can't be
+ * stored in Room directly, so we re-fetch them each time from
+ * PackageManager — cheap, and always reflects the app's current icon.
+ */
+fun loadAppIcon(pm: PackageManager, packageName: String): Drawable {
+    return try {
+        pm.getApplicationIcon(packageName)
+    } catch (e: PackageManager.NameNotFoundException) {
+        pm.defaultActivityIcon
+    }
 }
 
 /**
