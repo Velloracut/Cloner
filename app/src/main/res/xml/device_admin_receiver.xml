@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Intentionally empty policy set. This app only needs to become a
+      Profile Owner to create/manage a Work Profile for app cloning —
+      it does NOT request device-wide admin controls (no wipe-data,
+      password-policy, camera-disable, etc.)
+    -->
+</device-admin>

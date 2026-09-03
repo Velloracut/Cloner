@@ -7,8 +7,11 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -70,18 +73,66 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun DualAppRoot() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     // Simple in-memory state for now — cloned apps list is NOT persisted yet.
-    // TODO: back this with real storage once the cloning engine is added.
+    // TODO: back this with real storage (Room) so it survives app restarts.
     val clonedApps = remember { mutableStateListOf<ClonedApp>() }
     var showAppPicker by remember { mutableStateOf(false) }
     var pendingApp by remember { mutableStateOf<InstalledApp?>(null) }
 
+    val insideWorkProfile = remember { WorkProfileManager.isRunningInsideWorkProfile(context) }
+    var profileReady by remember { mutableStateOf(WorkProfileManager.isProfileOwner(context)) }
+
+    val provisioningLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        profileReady = WorkProfileManager.isProfileOwner(context)
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            Toast.makeText(
+                context,
+                "Work profile created. Open the badged Cloner icon to start cloning apps.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        HomeScreen(
-            clonedApps = clonedApps,
-            onAddClick = { showAppPicker = true },
-            onRemoveClick = { app -> clonedApps.remove(app) }
-        )
+        if (insideWorkProfile) {
+            // We're running as the copy of this app that lives INSIDE the
+            // work profile. Here, "cloning" means installing the selected
+            // app's existing APK into this profile.
+            HomeScreen(
+                title = "Clone apps here",
+                clonedApps = clonedApps,
+                onAddClick = { showAppPicker = true },
+                onRemoveClick = { app -> clonedApps.remove(app) },
+                onTileClick = { /* nothing to launch from inside the work profile itself */ }
+            )
+        } else if (!profileReady) {
+            EnableCloningScreen(
+                onEnableClick = {
+                    provisioningLauncher.launch(WorkProfileManager.buildProvisioningIntent(context))
+                }
+            )
+        } else {
+            HomeScreen(
+                title = "Cloned Apps",
+                clonedApps = clonedApps,
+                onAddClick = { showAppPicker = true },
+                onRemoveClick = { app -> clonedApps.remove(app) },
+                onTileClick = { app ->
+                    val launched = WorkProfileManager.launchClonedApp(context, app.originalPackageName)
+                    if (!launched) {
+                        Toast.makeText(
+                            context,
+                            "Not cloned yet — open the badged Cloner icon in your app drawer and clone \"${app.label}\" there first.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            )
+        }
 
         if (showAppPicker) {
             AppPickerScreen(
@@ -97,6 +148,15 @@ fun DualAppRoot() {
             CloneConfirmDialog(
                 app = app,
                 onConfirm = {
+                    if (insideWorkProfile) {
+                        val ok = WorkProfileManager.cloneIntoWorkProfile(context, app.packageName)
+                        Toast.makeText(
+                            context,
+                            if (ok) "\"${app.label}\" cloned. Go back to your main Cloner app to open it."
+                            else "Could not clone \"${app.label}\" — this app may block cloning.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                     clonedApps.add(
                         ClonedApp(
                             id = System.currentTimeMillis(),
@@ -113,17 +173,52 @@ fun DualAppRoot() {
     }
 }
 
+// ---------- Onboarding screen: shown until the work profile exists ----------
+
+@Composable
+fun EnableCloningScreen(onEnableClick: () -> Unit) {
+    Scaffold(topBar = { TopAppBar(title = { Text("Cloner") }) }) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                "Pehli baar setup",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Cloning ke liye Android ek alag \"Work Profile\" banata hai — yeh official " +
+                    "Android feature hai. Aage badhne ke liye ijazat dena hoga.",
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onEnableClick) {
+                Text("Cloning Enable Karein")
+            }
+        }
+    }
+}
+
 // ---------- Home screen: grid of cloned apps + FAB ----------
 
 @Composable
 fun HomeScreen(
+    title: String,
     clonedApps: List<ClonedApp>,
     onAddClick: () -> Unit,
-    onRemoveClick: (ClonedApp) -> Unit
+    onRemoveClick: (ClonedApp) -> Unit,
+    onTileClick: (ClonedApp) -> Unit
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Cloned Apps") })
+            TopAppBar(title = { Text(title) })
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddClick) {
@@ -155,7 +250,11 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(clonedApps, key = { it.id }) { app ->
-                    ClonedAppTile(app = app, onRemove = { onRemoveClick(app) })
+                    ClonedAppTile(
+                        app = app,
+                        onClick = { onTileClick(app) },
+                        onRemove = { onRemoveClick(app) }
+                    )
                 }
             }
         }
@@ -163,14 +262,10 @@ fun HomeScreen(
 }
 
 @Composable
-fun ClonedAppTile(app: ClonedApp, onRemove: () -> Unit) {
+fun ClonedAppTile(app: ClonedApp, onClick: () -> Unit, onRemove: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable {
-                // TODO: launch the cloned instance once the virtualization
-                // engine exists. For now this tile is a visual placeholder.
-            }
+        modifier = Modifier.clickable { onClick() }
     ) {
         Box {
             AppIcon(drawable = app.icon, sizeDp = 56)

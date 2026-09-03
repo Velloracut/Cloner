@@ -25,6 +25,24 @@
             </intent-filter>
         </activity>
 
+        <!--
+          Required to become a Work Profile owner via the official
+          ACTION_PROVISION_MANAGED_PROFILE flow (same mechanism used by
+          Island / Shelter). Declares NO device-wide admin policies —
+          see res/xml/device_admin_receiver.xml.
+        -->
+        <receiver
+            android:name=".CloneDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_receiver" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
