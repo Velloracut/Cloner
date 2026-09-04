@@ -1,27 +1,23 @@
 package com.vellora.dualapp.virtual
 
 import android.content.Context
-import android.content.pm.PackageManager
 
 /**
  * Single entry point for the whole virtualization engine. Everything the
  * rest of the app needs (clone / launch / uninstall / query) goes through
  * here, so MainActivity never has to know how cloning is actually done.
  *
- * PHASE 1 (current): stub implementation. "Cloning" an app just records the
- * package name — nothing is actually sandboxed or launched in isolation
- * yet. This keeps the app buildable and the UI functional while the real
- * engine is built underneath it in later phases.
+ * PHASE 1 (done): registry of which packages are "cloned", backed by prefs.
  *
- * PHASE 2: HookManager will intercept ActivityThread / Instrumentation so a
- * cloned app's real Activity can be started inside VirtualStubActivity.
+ * PHASE 2 (done): launchClonedApp() now routes through HookManager, which
+ * hooks Instrumentation so a cloned app's real Activity actually starts,
+ * with its own resources and sandboxed storage (VirtualContext).
  *
- * PHASE 3: VirtualPackageManager + per-clone sandbox storage (each clone
- * gets its own data/, files/, databases/ directory under this app's
- * private storage — no separate Android user/profile needed).
- *
- * PHASE 4: MainActivity wired directly to this class (already mostly true
- * by the end of Phase 1).
+ * PHASE 3 (next): today, cloning a package only registers it — the real
+ * APK/data isolation happens lazily at launch time via
+ * VirtualPackageManager. Phase 3 will make clone-time itself pre-warm the
+ * sandbox (copy APK metadata, pre-create dirs) and add proper
+ * uninstall/cleanup handling.
  */
 object VirtualCore {
 
@@ -59,17 +55,13 @@ object VirtualCore {
         registry().all.keys.filter { registry().getBoolean(it, false) }.toSet()
 
     /**
-     * PHASE 1 stub: returns false always (nothing to launch yet — there is
-     * no isolated instance to start). PHASE 2 will replace this with
-     * HookManager.launch(packageName), which starts the target app's real
-     * launcher Activity through VirtualStubActivity using a hooked
-     * Instrumentation so it believes it's running as itself, in its own
-     * sandboxed data directory.
+     * PHASE 2: routes through HookManager, which hooks Instrumentation and
+     * starts the target app's real launcher Activity through
+     * VirtualStubActivity — the target believes it's running as itself, in
+     * its own sandboxed data directory (VirtualContext).
      */
-    fun launchClonedApp(packageName: String): Boolean {
-        // TODO(Phase 2): HookManager.launch(appContext, packageName)
-        return false
-    }
+    fun launchClonedApp(packageName: String): Boolean =
+        HookManager.launch(appContext, packageName)
 
     private fun registry() =
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

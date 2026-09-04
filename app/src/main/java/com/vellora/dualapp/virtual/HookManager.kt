@@ -1,51 +1,66 @@
 package com.vellora.dualapp.virtual
 
+import android.app.Instrumentation
 import android.content.Context
+import android.content.Intent
 
 /**
- * PHASE 2 WORK GOES HERE (not yet implemented).
+ * PHASE 2: installs the ActivityThread.mInstrumentation hook (see
+ * VirtualInstrumentation) and exposes launch() to actually start a cloned
+ * app's real Activity.
  *
- * This is where the actual reflection-based hooking lives:
- *
- *  - Hook `Instrumentation` on the current `ActivityThread` (via reflection
- *    on `ActivityThread.currentActivityThread()` -> field `mInstrumentation`)
- *    with our own subclass, so that when a cloned app's Activity is asked
- *    to start, we intercept `execStartActivity` / `newActivity` and swap in
- *    the target app's real Activity class loaded through our own
- *    ClassLoader instead of the system's.
- *
- *  - Hook `ActivityManager` (via `IActivityManager` / `IActivityTaskManager`
- *    proxies depending on Android version) so `startActivity` calls
- *    targeting a "not really installed" package are redirected to
- *    VirtualStubActivity, which the system DOES know about.
- *
- *  - This is the single most fragile part of the whole project: the exact
- *    field/method names on ActivityThread, IActivityManager etc. change
- *    across Android versions (sometimes even between minor releases), so
- *    this needs version-gated reflection (`Build.VERSION.SDK_INT` checks)
- *    with a fallback path per major Android version we want to support.
- *
- *  - Reference implementations to study: VirtualApp (asLody/VirtualApp on
- *    GitHub) and DroidPlugin — both open-source, both solve this exact
- *    problem. We will port/adapt their hooking approach rather than
- *    reinventing it from scratch.
+ * Fragile-by-nature: field/method names on ActivityThread are internal and
+ * can differ slightly across Android versions/OEM skins. If reflection
+ * fails here, [installed] stays false and launch() returns false instead of
+ * crashing — MainActivity already shows a fallback Toast for that case.
  */
 object HookManager {
 
-    private var installed = false
+    var installed = false
+        private set
 
-    /** PHASE 2: install the Instrumentation + AMS hooks. Currently a no-op. */
     fun ensureHooksInstalled(context: Context) {
         if (installed) return
-        // TODO(Phase 2): reflective hook installation goes here.
-        installed = true
+        HiddenApiBypass.exemptAll()
+        try {
+            val activityThreadClass = Class.forName("android.app.ActivityThread")
+            val currentActivityThreadMethod = activityThreadClass.getDeclaredMethod("currentActivityThread")
+            currentActivityThreadMethod.isAccessible = true
+            val activityThread = currentActivityThreadMethod.invoke(null)
+
+            val instrumentationField = activityThreadClass.getDeclaredField("mInstrumentation")
+            instrumentationField.isAccessible = true
+            val original = instrumentationField.get(activityThread) as Instrumentation
+
+            val hooked = VirtualInstrumentation(original, context.applicationContext)
+            instrumentationField.set(activityThread, hooked)
+            installed = true
+        } catch (e: Throwable) {
+            installed = false
+        }
     }
 
-    /** PHASE 2: actually start [packageName]'s launcher activity virtually. */
+    /**
+     * Resolves [packageName]'s own launcher Intent and starts it. Because
+     * the target package is registered as "cloned" (VirtualCore.isCloned),
+     * VirtualInstrumentation.execStartActivity automatically redirects this
+     * through VirtualStubActivity and back into the real target Activity —
+     * launch() itself doesn't need to know any of those details.
+     */
     fun launch(context: Context, packageName: String): Boolean {
         ensureHooksInstalled(context)
-        // TODO(Phase 2): resolve target app's launch intent via
-        // VirtualPackageManager, then route it through VirtualStubActivity.
-        return false
+        if (!installed) return false
+
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return false
+        if (launchIntent.component == null) return false
+
+        return try {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            context.startActivity(launchIntent)
+            true
+        } catch (e: Throwable) {
+            false
+        }
     }
 }

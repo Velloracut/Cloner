@@ -112,7 +112,7 @@ fun DualAppRoot() {
                 if (!launched) {
                     Toast.makeText(
                         context,
-                        "Virtual launch engine abhi Phase 2 mein bann raha hai — \"${app.label}\" jald launch ho sakegi.",
+                        "\"${app.label}\" launch nahi ho saki — is Android version par hooking fail hui (log check karein).",
                         Toast.LENGTH_LONG
                     ).show()
                 }
