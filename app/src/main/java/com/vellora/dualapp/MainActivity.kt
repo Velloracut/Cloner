@@ -9,9 +9,7 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -29,10 +27,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.draw
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +34,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.vellora.dualapp.data.AppDatabase
 import com.vellora.dualapp.data.ClonedAppEntity
 import com.vellora.dualapp.ui.theme.DualAppTheme
+import com.vellora.dualapp.virtual.VirtualCore
 import kotlinx.coroutines.launch
 
 // ---------- Data model ----------
@@ -62,6 +57,7 @@ data class ClonedApp(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        VirtualCore.init(applicationContext)
         setContent {
             DualAppTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -80,8 +76,9 @@ fun DualAppRoot() {
     val scope = rememberCoroutineScope()
     val db = remember { AppDatabase.getInstance(context) }
 
-    // Persisted via Room — survives app restarts. Each Android profile
-    // (personal vs. work) has its own separate database file automatically.
+    // Persisted via Room — survives app restarts. VirtualCore (Phase 3)
+    // will eventually own each clone's sandboxed storage; this DB just
+    // tracks *which* packages have been cloned for the UI.
     val clonedEntities by db.clonedAppDao().getAll().collectAsState(initial = emptyList())
     val clonedApps = remember(clonedEntities) {
         clonedEntities.map { entity ->
@@ -97,70 +94,30 @@ fun DualAppRoot() {
     var showAppPicker by remember { mutableStateOf(false) }
     var pendingApp by remember { mutableStateOf<InstalledApp?>(null) }
 
-    val insideWorkProfile = remember { WorkProfileManager.isRunningInsideWorkProfile(context) }
-    var profileReady by remember { mutableStateOf(WorkProfileManager.isProfileOwner(context)) }
-
-    val provisioningLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        profileReady = WorkProfileManager.isProfileOwner(context)
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            Toast.makeText(
-                context,
-                "Work profile created. Open the badged Cloner icon to start cloning apps.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
-        if (insideWorkProfile) {
-            // We're running as the copy of this app that lives INSIDE the
-            // work profile. Here, "cloning" means installing the selected
-            // app's existing APK into this profile.
-            HomeScreen(
-                title = "Clone apps here",
-                clonedApps = clonedApps,
-                onAddClick = { showAppPicker = true },
-                onRemoveClick = { app ->
-                    scope.launch {
-                        db.clonedAppDao().delete(
-                            ClonedAppEntity(app.id, app.label, app.originalPackageName)
-                        )
-                    }
-                },
-                onTileClick = { /* nothing to launch from inside the work profile itself */ }
-            )
-        } else if (!profileReady) {
-            EnableCloningScreen(
-                onEnableClick = {
-                    provisioningLauncher.launch(WorkProfileManager.buildProvisioningIntent(context))
+        HomeScreen(
+            title = "Cloned Apps",
+            clonedApps = clonedApps,
+            onAddClick = { showAppPicker = true },
+            onRemoveClick = { app ->
+                scope.launch {
+                    db.clonedAppDao().delete(
+                        ClonedAppEntity(app.id, app.label, app.originalPackageName)
+                    )
                 }
-            )
-        } else {
-            HomeScreen(
-                title = "Cloned Apps",
-                clonedApps = clonedApps,
-                onAddClick = { showAppPicker = true },
-                onRemoveClick = { app ->
-                    scope.launch {
-                        db.clonedAppDao().delete(
-                            ClonedAppEntity(app.id, app.label, app.originalPackageName)
-                        )
-                    }
-                },
-                onTileClick = { app ->
-                    val launched = WorkProfileManager.launchClonedApp(context, app.originalPackageName)
-                    if (!launched) {
-                        Toast.makeText(
-                            context,
-                            "Not cloned yet — open the badged Cloner icon in your app drawer and clone \"${app.label}\" there first.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                VirtualCore.removeClone(app.originalPackageName)
+            },
+            onTileClick = { app ->
+                val launched = VirtualCore.launchClonedApp(app.originalPackageName)
+                if (!launched) {
+                    Toast.makeText(
+                        context,
+                        "Virtual launch engine abhi Phase 2 mein bann raha hai — \"${app.label}\" jald launch ho sakegi.",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-            )
-        }
+            }
+        )
 
         if (showAppPicker) {
             AppPickerScreen(
@@ -176,15 +133,7 @@ fun DualAppRoot() {
             CloneConfirmDialog(
                 app = app,
                 onConfirm = {
-                    if (insideWorkProfile) {
-                        val ok = WorkProfileManager.cloneIntoWorkProfile(context, app.packageName)
-                        Toast.makeText(
-                            context,
-                            if (ok) "\"${app.label}\" cloned. Go back to your main Cloner app to open it."
-                            else "Could not clone \"${app.label}\" — this app may block cloning.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                    val ok = VirtualCore.cloneApp(app.packageName)
                     scope.launch {
                         db.clonedAppDao().insert(
                             ClonedAppEntity(
@@ -194,43 +143,16 @@ fun DualAppRoot() {
                             )
                         )
                     }
+                    Toast.makeText(
+                        context,
+                        if (ok) "\"${app.label}\" clone list mein add ho gayi."
+                        else "Clone add nahi ho saki.",
+                        Toast.LENGTH_LONG
+                    ).show()
                     pendingApp = null
                 },
                 onCancel = { pendingApp = null }
             )
-        }
-    }
-}
-
-// ---------- Onboarding screen: shown until the work profile exists ----------
-
-@Composable
-fun EnableCloningScreen(onEnableClick: () -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text("Cloner") }) }) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                "Pehli baar setup",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Cloning ke liye Android ek alag \"Work Profile\" banata hai — yeh official " +
-                    "Android feature hai. Aage badhne ke liye ijazat dena hoga.",
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(24.dp))
-            Button(onClick = onEnableClick) {
-                Text("Cloning Enable Karein")
-            }
         }
     }
 }

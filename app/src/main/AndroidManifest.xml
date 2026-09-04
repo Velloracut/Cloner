@@ -6,12 +6,17 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!-- Needed by the virtual engine to read/copy target APKs off disk -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Cloner"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:extractNativeLibs="true"
         android:theme="@style/Theme.DualApp">
 
         <activity
@@ -26,22 +31,16 @@
         </activity>
 
         <!--
-          Required to become a Work Profile owner via the official
-          ACTION_PROVISION_MANAGED_PROFILE flow (same mechanism used by
-          Island / Shelter). Declares NO device-wide admin policies —
-          see res/xml/device_admin_receiver.xml.
+          Proxy activities: the virtual engine launches a cloned app's real
+          Activity *as if* it were one of these stub activities, so the
+          system only ever sees activities that are actually declared here.
+          Phase 2 will register several of these (different launch modes /
+          task affinities) as the hooking layer is built out.
         -->
-        <receiver
-            android:name=".CloneDeviceAdminReceiver"
-            android:exported="true"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_receiver" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
+        <activity
+            android:name=".virtual.VirtualStubActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DualApp" />
 
     </application>
 
