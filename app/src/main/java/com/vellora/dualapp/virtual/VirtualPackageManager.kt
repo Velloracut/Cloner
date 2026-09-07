@@ -57,6 +57,7 @@ object VirtualPackageManager {
      * XML layouts/strings/drawables would resolve against OUR resource IDs
      * and crash or render wrong.
      */
+    @Suppress("DEPRECATION")
     fun resourcesFor(context: Context, packageName: String): Resources? {
         resourcesCache[packageName]?.let { return it }
         return try {

@@ -32,6 +32,9 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -48,4 +51,9 @@ dependencies {
     implementation("androidx.room:room-runtime:2.7.1")
     implementation("androidx.room:room-ktx:2.7.1")
     ksp("androidx.room:room-compiler:2.7.1")
+
+    // Maintained hidden-API-restriction bypass (Unsafe-based, not the
+    // fragile meta-reflection trick — some Android versions now
+    // force-blacklist the exact method our old hand-rolled version relied on).
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
 }
