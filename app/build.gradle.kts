@@ -17,6 +17,21 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Fixed keystore (checked into the repo as app/debug.keystore)
+            // so every build — CI or local — signs with the SAME key.
+            // Without this, each fresh machine/runner generates its own
+            // random debug key, and Android refuses to install a new APK
+            // over an old one signed with a different key ("package
+            // conflicts with an existing package").
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildFeatures { compose = true }
 
     compileOptions {
