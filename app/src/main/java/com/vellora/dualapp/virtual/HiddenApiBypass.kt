@@ -21,8 +21,9 @@ object HiddenApiBypass {
     fun exemptAll() {
         if (exempted) return
         try {
+            val classArrayType = emptyArray<Class<*>>().javaClass
             val metaMethod: Method = Class::class.java
-                .getDeclaredMethod("getDeclaredMethod", String::class.java, Array<Class<*>>::class.java)
+                .getDeclaredMethod("getDeclaredMethod", String::class.java, classArrayType)
 
             val forName = metaMethod.invoke(
                 Class::class.java, "forName", arrayOf(String::class.java)

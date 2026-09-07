@@ -1,6 +1,7 @@
 package com.vellora.dualapp.virtual
 
 import android.app.Instrumentation
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 
@@ -41,11 +42,11 @@ object HookManager {
     }
 
     /**
-     * Resolves [packageName]'s own launcher Intent and starts it. Because
-     * the target package is registered as "cloned" (VirtualCore.isCloned),
-     * VirtualInstrumentation.execStartActivity automatically redirects this
-     * through VirtualStubActivity and back into the real target Activity —
-     * launch() itself doesn't need to know any of those details.
+     * Resolves [packageName]'s own launcher Activity, then points the
+     * Intent at VirtualStubActivity instead (which IS declared in our
+     * manifest, so AMS accepts it) while stashing the real target
+     * package/class in extras. VirtualInstrumentation.newActivity() reads
+     * those back and instantiates the real target Activity in its place.
      */
     fun launch(context: Context, packageName: String): Boolean {
         ensureHooksInstalled(context)
@@ -53,10 +54,14 @@ object HookManager {
 
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: return false
-        if (launchIntent.component == null) return false
+        val realComponent = launchIntent.component ?: return false
+
+        launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, realComponent.packageName)
+        launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
+        launchIntent.component = ComponentName(context.packageName, VirtualStubActivity::class.java.name)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
 
         return try {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             context.startActivity(launchIntent)
             true
         } catch (e: Throwable) {

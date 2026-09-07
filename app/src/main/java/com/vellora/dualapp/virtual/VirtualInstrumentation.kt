@@ -2,11 +2,9 @@ package com.vellora.dualapp.virtual
 
 import android.app.Activity
 import android.app.Instrumentation
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.IBinder
 
 /** Extra keys used to smuggle the real target Activity through AMS. */
 object VirtualConstants {
@@ -15,51 +13,34 @@ object VirtualConstants {
 }
 
 /**
- * PHASE 2 CORE: wraps the app's real system Instrumentation. Three jobs:
+ * PHASE 2 CORE: wraps the app's real system Instrumentation. Two jobs:
  *
- * 1. [execStartActivity] — every startActivity() call passes through here
- *    before reaching AMS. If the target is a cloned package, we can't let
- *    AMS see it directly (it isn't "installed" as far as the system is
- *    concerned as a launchable component of OUR app) — so we swap the
- *    Intent's component to VirtualStubActivity (which IS declared in the
- *    manifest) and stash the real target package/class in extras.
- *
- * 2. [newActivity] — when ActivityThread asks us to instantiate
- *    VirtualStubActivity, we read those extras back and instantiate the
- *    REAL target Activity class instead, loaded through that package's own
- *    ClassLoader (see VirtualPackageManager). The stub declared in the
+ * 1. [newActivity] — when ActivityThread asks us to instantiate
+ *    VirtualStubActivity (the component HookManager.launch() actually
+ *    points the initial launch Intent at — see there for why), we read the
+ *    real target package/class back from the Intent's extras and instantiate
+ *    the REAL target Activity class instead, loaded through that package's
+ *    own ClassLoader (see VirtualPackageManager). The stub declared in the
  *    manifest is only ever a formality for AMS's bookkeeping — the object
  *    that actually runs is the target app's real Activity subclass.
  *
- * 3. [callActivityOnCreate] — right before onCreate() runs, swap the
+ * 2. [callActivityOnCreate] — right before onCreate() runs, swap the
  *    Activity's base Context for a VirtualContext so the target app's code
  *    sees its own package name, resources, and sandboxed storage.
+ *
+ * NOT done yet: intercepting a cloned app's OWN internal startActivity()
+ * calls (e.g. it navigating from its home screen to a settings screen).
+ * That needs hooking `execStartActivity`, which is a HIDDEN framework
+ * method — invisible to the compile-time Android SDK stubs, so it can't be
+ * `override`n here without swapping in a full/hidden-API android.jar as
+ * compileOnly (not set up yet). Today, only the app's initial launch (from
+ * HookManager.launch()) is redirected; multi-screen in-app navigation
+ * inside a clone is a known Phase 2 limitation to close next.
  */
 class VirtualInstrumentation(
     private val original: Instrumentation,
     private val appContext: Context
 ) : Instrumentation() {
-
-    override fun execStartActivity(
-        who: Context,
-        contextThread: IBinder,
-        token: IBinder,
-        target: Activity?,
-        intent: Intent,
-        requestCode: Int,
-        options: Bundle?
-    ): ActivityResult {
-        val realComponent = intent.component
-        if (realComponent != null &&
-            realComponent.packageName != who.packageName &&
-            VirtualCore.isCloned(realComponent.packageName)
-        ) {
-            intent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, realComponent.packageName)
-            intent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
-            intent.component = ComponentName(who.packageName, VirtualStubActivity::class.java.name)
-        }
-        return super.execStartActivity(who, contextThread, token, target, intent, requestCode, options)
-    }
 
     override fun newActivity(cl: ClassLoader, className: String, intent: Intent?): Activity {
         val targetPackage = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
