@@ -3,8 +3,11 @@ package com.vellora.dualapp.virtual
 import android.content.Context
 import android.content.res.AssetManager
 import android.content.res.Resources
+import android.util.Log
 import dalvik.system.DexClassLoader
 import java.io.File
+
+private const val TAG = "VirtualEngine"
 
 /**
  * PHASE 2/3: makes a cloned app's real, already-installed APK usable inside
@@ -44,8 +47,10 @@ object VirtualPackageManager {
                 context.classLoader
             )
             classLoaderCache[packageName] = loader
+            Log.i(TAG, "classLoaderFor($packageName) OK — sourceDir=${appInfo.sourceDir}")
             loader
         } catch (e: Exception) {
+            Log.e(TAG, "classLoaderFor($packageName) FAILED", e)
             null
         }
     }
@@ -72,8 +77,10 @@ object VirtualPackageManager {
             val hostRes = context.resources
             val resources = Resources(assetManager, hostRes.displayMetrics, hostRes.configuration)
             resourcesCache[packageName] = resources
+            Log.i(TAG, "resourcesFor($packageName) OK")
             resources
         } catch (e: Exception) {
+            Log.e(TAG, "resourcesFor($packageName) FAILED", e)
             null
         }
     }

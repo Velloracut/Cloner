@@ -5,6 +5,9 @@ import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+
+private const val TAG = "VirtualEngine"
 
 /** Extra keys used to smuggle the real target Activity through AMS. */
 object VirtualConstants {
@@ -45,16 +48,19 @@ class VirtualInstrumentation(
     override fun newActivity(cl: ClassLoader, className: String, intent: Intent?): Activity {
         val targetPackage = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
         val targetClass = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_CLASS)
+        Log.i(TAG, "newActivity: className=$className targetPackage=$targetPackage targetClass=$targetClass")
         if (targetPackage != null && targetClass != null) {
             val targetLoader = VirtualPackageManager.classLoaderFor(appContext, targetPackage)
             if (targetLoader != null) {
                 try {
-                    return super.newActivity(targetLoader, targetClass, intent)
+                    val activity = super.newActivity(targetLoader, targetClass, intent)
+                    Log.i(TAG, "newActivity: REAL target Activity instantiated OK ($targetClass)")
+                    return activity
                 } catch (e: Throwable) {
-                    // Target class load failed (missing dependency, weird
-                    // multi-dex layout, etc.) — fall back to the stub below
-                    // rather than crashing the whole launch.
+                    Log.e(TAG, "newActivity: failed to instantiate $targetClass — falling back to stub", e)
                 }
+            } else {
+                Log.e(TAG, "newActivity: classLoaderFor($targetPackage) returned null — falling back to stub")
             }
         }
         return super.newActivity(cl, className, intent)
@@ -69,10 +75,9 @@ class VirtualInstrumentation(
                 baseField.isAccessible = true
                 val realBase = baseField.get(activity) as Context
                 baseField.set(activity, VirtualContext(realBase, targetPackage))
+                Log.i(TAG, "callActivityOnCreate: base context swapped OK for $targetPackage")
             } catch (e: Throwable) {
-                // Base-context swap failed — the activity still launches,
-                // just under the host's package identity/resources instead
-                // of the cloned app's own (layouts may render incorrectly).
+                Log.e(TAG, "callActivityOnCreate: base context swap FAILED for $targetPackage", e)
             }
         }
         super.callActivityOnCreate(activity, icicle)
