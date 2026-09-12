@@ -43,8 +43,21 @@ object VirtualPackageManager {
 
     /**
      * Loads the target app's real APK classes into our process via
-     * DexClassLoader, parented to our own ClassLoader (so shared framework/
-     * Kotlin-stdlib classes still resolve normally).
+     * DexClassLoader, parented to the pure BOOT classloader (android.*,
+     * java.* framework classes only) — NOT our own host app's classloader.
+     *
+     * Why: Java/ART classloading is parent-first by default. If we parented
+     * to our own (host) classloader, any library BOTH our host app and a
+     * cloned app happen to bundle (e.g. Compose Material3 — Cloner itself
+     * uses it too) would resolve to OUR host's copy first, even when the
+     * cloned app ships a different, incompatible version of that same
+     * library. That's exactly what caused a NoSuchMethodError in testing
+     * (BluePrint's own Compose call resolved against Cloner's own bundled
+     * class instead of BluePrint's). Parenting to the boot classloader
+     * means the target's own DexClassLoader is authoritative for its own
+     * bundled libraries, while still sharing core android.*/java.* framework
+     * classes normally (those always come from the boot classpath anyway,
+     * regardless of which app classloader asks for them).
      *
      * Modern apps (especially anything updated via Play Store, like Google's
      * own apps) ship as SPLIT APKs — base.apk holds just a bootstrap, and
@@ -64,7 +77,7 @@ object VirtualPackageManager {
                 dexPath,
                 optimizedDir.absolutePath,
                 appInfo.nativeLibraryDir,
-                context.classLoader
+                ClassLoader.getSystemClassLoader()
             )
             classLoaderCache[packageName] = loader
             AppLogger.i(TAG, "classLoaderFor($packageName) OK — ${apkPaths.size} apk(s): $apkPaths")
