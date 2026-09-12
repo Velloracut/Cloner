@@ -2,9 +2,12 @@ package com.vellora.dualapp.virtual
 
 import android.app.Activity
 import android.app.Instrumentation
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.IBinder
+import java.lang.reflect.Method
 
 private const val TAG = "VirtualEngine"
 
@@ -30,19 +33,81 @@ object VirtualConstants {
  *    Activity's base Context for a VirtualContext so the target app's code
  *    sees its own package name, resources, and sandboxed storage.
  *
- * NOT done yet: intercepting a cloned app's OWN internal startActivity()
- * calls (e.g. it navigating from its home screen to a settings screen).
- * That needs hooking `execStartActivity`, which is a HIDDEN framework
- * method — invisible to the compile-time Android SDK stubs, so it can't be
- * `override`n here without swapping in a full/hidden-API android.jar as
- * compileOnly (not set up yet). Today, only the app's initial launch (from
- * HookManager.launch()) is redirected; multi-screen in-app navigation
- * inside a clone is a known Phase 2 limitation to close next.
+ * 3. [execStartActivity] — a cloned app's OWN internal startActivity() calls
+ *    (e.g. a splash screen navigating to its main screen) are redirected
+ *    the same way the initial launch was, using the signature-matching
+ *    trick documented on that method (no `override` keyword needed/possible
+ *    for a hidden method, but the JVM dispatches to it anyway).
  */
 class VirtualInstrumentation(
     private val original: Instrumentation,
     private val appContext: Context
 ) : Instrumentation() {
+
+    // execStartActivity is a HIDDEN framework method — invisible to the
+    // compile-time Android SDK stubs, so Kotlin's `override` keyword can't
+    // be used on it (the compiler can't see any such method to override).
+    // BUT: the JVM/ART's actual virtual-method dispatch is based purely on
+    // method name + parameter/return type descriptors, not on the `override`
+    // keyword (that's a source-level/compiler-only check). So defining a
+    // plain method here with the EXACT same signature the real framework
+    // method has is enough for ActivityThread's call to
+    // `mInstrumentation.execStartActivity(...)` to land on THIS method at
+    // runtime, even though Kotlin itself doesn't know it's "overriding"
+    // anything. This is the standard technique plugin/virtualization
+    // frameworks use for exactly this class of hidden API.
+    private val originalExecStartActivity: Method? by lazy {
+        try {
+            Instrumentation::class.java.getDeclaredMethod(
+                "execStartActivity",
+                Context::class.java, IBinder::class.java, IBinder::class.java, Activity::class.java,
+                Intent::class.java, Int::class.javaPrimitiveType, Bundle::class.java
+            ).apply { isAccessible = true }
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "execStartActivity reflection setup FAILED", e)
+            null
+        }
+    }
+
+    @Suppress("unused") // matched by JVM signature at runtime, not a compile-time override
+    fun execStartActivity(
+        who: Context,
+        contextThread: IBinder,
+        token: IBinder,
+        target: Activity?,
+        intent: Intent,
+        requestCode: Int,
+        options: Bundle?
+    ): Instrumentation.ActivityResult {
+        try {
+            // If the CALLER is an Activity we already launched as a clone
+            // (it carries our EXTRA_TARGET_PACKAGE), treat this as that same
+            // app navigating to one of its own other screens — redirect it
+            // through VirtualStubActivity exactly like the initial launch,
+            // regardless of what package name ended up on the new Intent's
+            // component (in testing this was sometimes wrong/host's own).
+            val ambientTargetPackage = (who as? Activity)?.intent
+                ?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
+            val realComponent = intent.component
+            if (ambientTargetPackage != null && realComponent != null &&
+                realComponent.packageName != appContext.packageName
+            ) {
+                intent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, ambientTargetPackage)
+                intent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
+                intent.component = ComponentName(appContext.packageName, VirtualStubActivity::class.java.name)
+                AppLogger.i(TAG, "execStartActivity: redirected in-app navigation to ${realComponent.className}")
+            }
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "execStartActivity: redirect logic FAILED", e)
+        }
+
+        val method = originalExecStartActivity
+            ?: throw IllegalStateException("execStartActivity reflection unavailable")
+        @Suppress("UNCHECKED_CAST")
+        return method.invoke(
+            original, who, contextThread, token, target, intent, requestCode, options
+        ) as Instrumentation.ActivityResult
+    }
 
     override fun newActivity(cl: ClassLoader, className: String, intent: Intent?): Activity {
         val targetPackage = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
