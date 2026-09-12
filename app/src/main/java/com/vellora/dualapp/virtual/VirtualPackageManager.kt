@@ -55,7 +55,7 @@ object VirtualPackageManager {
      * (BluePrint's own Compose call resolved against Cloner's own bundled
      * class instead of BluePrint's). Parenting to the boot classloader
      * means the target's own DexClassLoader is authoritative for its own
-     * bundled libraries, while still sharing core android.*/java.* framework
+     * bundled libraries, while still sharing core android/java framework
      * classes normally (those always come from the boot classpath anyway,
      * regardless of which app classloader asks for them).
      *
