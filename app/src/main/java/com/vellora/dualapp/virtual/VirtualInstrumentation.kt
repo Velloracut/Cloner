@@ -92,7 +92,11 @@ class VirtualInstrumentation(
             try {
                 val resources = VirtualPackageManager.resourcesFor(appContext, targetPackage)
                 if (resources != null) {
-                    val resField = Activity::class.java.getDeclaredField("mResources")
+                    // mResources lives on ContextThemeWrapper (Activity's
+                    // parent class), not on Activity itself — getDeclaredField
+                    // only checks the exact class given, so this has to
+                    // target ContextThemeWrapper specifically.
+                    val resField = android.view.ContextThemeWrapper::class.java.getDeclaredField("mResources")
                     resField.isAccessible = true
                     resField.set(activity, resources)
                     AppLogger.i(TAG, "callActivityOnCreate: mResources swapped OK for $targetPackage")
