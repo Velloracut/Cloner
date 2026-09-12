@@ -1,6 +1,8 @@
 package com.vellora.dualapp.virtual
 
+import android.app.Application
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.AssetManager
 import android.content.res.Resources
 import dalvik.system.DexClassLoader
@@ -25,6 +27,7 @@ object VirtualPackageManager {
 
     private val classLoaderCache = mutableMapOf<String, ClassLoader>()
     private val resourcesCache = mutableMapOf<String, Resources>()
+    private val applicationCache = mutableMapOf<String, Application>()
 
     fun sandboxRoot(context: Context, packageName: String): File =
         File(context.filesDir, "virtual/$packageName").apply { mkdirs() }
@@ -102,6 +105,42 @@ object VirtualPackageManager {
             resources
         } catch (e: Exception) {
             AppLogger.e(TAG, "resourcesFor($packageName) FAILED", e)
+            null
+        }
+    }
+
+    /**
+     * Instantiates and initializes the target app's OWN Application class
+     * (its `android:name` in its manifest) — VirtualApp does the same thing
+     * for exactly this reason: most real apps set up singletons/global
+     * state in their Application.onCreate() that their Activities depend
+     * on. Without this, an Activity that assumes its Application already
+     * ran init code crashes with a null-state exception the moment it
+     * touches that state.
+     */
+    fun applicationFor(context: Context, packageName: String): Application? {
+        applicationCache[packageName]?.let { return it }
+        return try {
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            val loader = classLoaderFor(context, packageName) ?: return null
+            val appClassName = appInfo.className ?: "android.app.Application"
+            val appClass = loader.loadClass(appClassName)
+            val app = appClass.getDeclaredConstructor().newInstance() as Application
+
+            val virtualContext = VirtualContext(context, packageName)
+            // attachBaseContext is `protected`, not hidden — plain
+            // reflection + setAccessible is enough, no HiddenApiBypass needed.
+            val attachMethod = ContextWrapper::class.java
+                .getDeclaredMethod("attachBaseContext", Context::class.java)
+            attachMethod.isAccessible = true
+            attachMethod.invoke(app, virtualContext)
+
+            app.onCreate()
+            applicationCache[packageName] = app
+            AppLogger.i(TAG, "applicationFor($packageName) OK — class=$appClassName")
+            app
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "applicationFor($packageName) FAILED", e)
             null
         }
     }

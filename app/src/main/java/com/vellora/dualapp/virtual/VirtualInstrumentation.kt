@@ -78,6 +78,22 @@ class VirtualInstrumentation(
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "callActivityOnCreate: base context swap FAILED for $targetPackage", e)
             }
+
+            // Give the Activity the target app's own (real) Application
+            // instance — already initialized via its own onCreate() — so
+            // getApplication() returns something the target's code can
+            // actually rely on, instead of our host app's Application.
+            try {
+                val app = VirtualPackageManager.applicationFor(appContext, targetPackage)
+                if (app != null) {
+                    val appField = Activity::class.java.getDeclaredField("mApplication")
+                    appField.isAccessible = true
+                    appField.set(activity, app)
+                    AppLogger.i(TAG, "callActivityOnCreate: fake Application attached for $targetPackage")
+                }
+            } catch (e: Throwable) {
+                AppLogger.e(TAG, "callActivityOnCreate: attaching fake Application FAILED for $targetPackage", e)
+            }
         }
 
         if (targetPackage != null) {
