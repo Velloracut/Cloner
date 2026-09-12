@@ -230,6 +230,16 @@ class VirtualInstrumentation(
         }
 
         if (targetPackage != null) {
+            // Force a completely fresh start for cloned apps — don't hand
+            // them a savedInstanceState bundle from a previous run/rotation.
+            // Some apps (WebView-based ones especially) try to restore
+            // navigation/cache state from that bundle, and since our
+            // sandboxed cache directory is fresh each time, the referenced
+            // cache entry no longer exists — this is exactly what caused
+            // InvestAndEarn's WebView to show "net::ERR_CACHE_MISS" instead
+            // of just loading the page normally.
+            val freshIcicle: Bundle? = null
+
             // The target Activity's own onCreate() runs inside this super
             // call. If IT throws (missing target Application init, a
             // resource it expects that we didn't wire up, etc.), we catch
@@ -237,7 +247,7 @@ class VirtualInstrumentation(
             // the real exception (visible in View Logs) and close just this
             // one broken clone launch.
             try {
-                super.callActivityOnCreate(activity, icicle)
+                super.callActivityOnCreate(activity, freshIcicle)
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "callActivityOnCreate: target onCreate() THREW for $targetPackage", e)
                 try {
