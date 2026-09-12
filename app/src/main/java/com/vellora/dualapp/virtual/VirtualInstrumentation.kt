@@ -78,19 +78,22 @@ class VirtualInstrumentation(
         intent: Intent,
         requestCode: Int,
         options: Bundle?
-    ): Instrumentation.ActivityResult {
+    ): Instrumentation.ActivityResult? {
         try {
             // If the CALLER is an Activity we already launched as a clone
             // (it carries our EXTRA_TARGET_PACKAGE), treat this as that same
             // app navigating to one of its own other screens — redirect it
-            // through VirtualStubActivity exactly like the initial launch,
-            // regardless of what package name ended up on the new Intent's
-            // component (in testing this was sometimes wrong/host's own).
+            // through VirtualStubActivity exactly like the initial launch.
+            // NOTE: don't gate this on the new Intent's component package —
+            // in testing it sometimes came back as OUR host package even
+            // for the target's own internal navigation, so the only
+            // reliable signal is "am I already pointed at VirtualStubActivity
+            // (already redirected, don't redirect again)".
             val ambientTargetPackage = (who as? Activity)?.intent
                 ?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
             val realComponent = intent.component
             if (ambientTargetPackage != null && realComponent != null &&
-                realComponent.packageName != appContext.packageName
+                realComponent.className != VirtualStubActivity::class.java.name
             ) {
                 intent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, ambientTargetPackage)
                 intent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
@@ -103,10 +106,12 @@ class VirtualInstrumentation(
 
         val method = originalExecStartActivity
             ?: throw IllegalStateException("execStartActivity reflection unavailable")
-        @Suppress("UNCHECKED_CAST")
+        // The real framework method legitimately returns null when no
+        // result is expected (requestCode < 0) — must NOT force a non-null
+        // cast here, that itself was crashing every single launch.
         return method.invoke(
             original, who, contextThread, token, target, intent, requestCode, options
-        ) as Instrumentation.ActivityResult
+        ) as Instrumentation.ActivityResult?
     }
 
     override fun newActivity(cl: ClassLoader, className: String, intent: Intent?): Activity {
