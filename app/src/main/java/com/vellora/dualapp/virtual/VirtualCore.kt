@@ -28,6 +28,23 @@ object VirtualCore {
     fun init(context: Context) {
         appContext = context.applicationContext
         AppLogger.init(appContext)
+        installGlobalCrashLogger()
+    }
+
+    /**
+     * Catches crashes that happen OUTSIDE the specific try/catch blocks in
+     * VirtualInstrumentation (e.g. a cloned app's own internal in-app
+     * navigation, or something going wrong after onCreate() has already
+     * returned successfully) so they still get logged before the normal
+     * Android crash dialog takes over — otherwise these show up as a silent
+     * "app just closed" with nothing in View Logs to explain why.
+     */
+    private fun installGlobalCrashLogger() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            AppLogger.e("VirtualEngine", "UNCAUGHT crash on thread \"${thread.name}\"", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
     }
 
     /**

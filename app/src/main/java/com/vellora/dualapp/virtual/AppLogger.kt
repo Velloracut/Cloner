@@ -41,9 +41,14 @@ object AppLogger {
         try {
             val time = dateFormat.format(Date())
             val line = StringBuilder("$time $level/$tag: $msg")
-            if (t != null) {
-                line.append("\n    ${t.javaClass.name}: ${t.message}")
-                t.stackTrace.take(6).forEach { line.append("\n        at $it") }
+            var cause: Throwable? = t
+            var depth = 0
+            while (cause != null && depth < 4) {
+                val prefix = if (depth == 0) "" else "Caused by: "
+                line.append("\n    $prefix${cause.javaClass.name}: ${cause.message}")
+                cause.stackTrace.take(6).forEach { line.append("\n        at $it") }
+                cause = cause.cause
+                depth++
             }
             file.appendText(line.toString() + "\n")
             if (file.length() > MAX_BYTES) {
