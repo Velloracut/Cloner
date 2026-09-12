@@ -73,7 +73,7 @@ class VirtualInstrumentation(
     fun execStartActivity(
         who: Context,
         contextThread: IBinder,
-        token: IBinder,
+        token: IBinder?,
         target: Activity?,
         intent: Intent,
         requestCode: Int,
