@@ -67,6 +67,7 @@ class VirtualInstrumentation(
 
     override fun callActivityOnCreate(activity: Activity, icicle: Bundle?) {
         val targetPackage = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
+        val targetClass = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_CLASS)
         if (targetPackage != null) {
             try {
                 val contextWrapperClass = Class.forName("android.content.ContextWrapper")
@@ -77,6 +78,50 @@ class VirtualInstrumentation(
                 AppLogger.i(TAG, "callActivityOnCreate: base context swapped OK for $targetPackage")
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "callActivityOnCreate: base context swap FAILED for $targetPackage", e)
+            }
+
+            // Activity caches its OWN Resources reference in a private
+            // field (set once during attach(), from the manifest's
+            // VirtualStubActivity — i.e. OUR host resources) rather than
+            // reading dynamically through mBase.getResources() each time.
+            // Swapping mBase alone does NOT change what activity.getResources()
+            // returns — this field has to be patched too, or every resource
+            // lookup (drawables, AppCompat's internal checks, etc.) resolves
+            // against the WRONG app's resource table and throws
+            // Resources.NotFoundException, exactly as seen in testing.
+            try {
+                val resources = VirtualPackageManager.resourcesFor(appContext, targetPackage)
+                if (resources != null) {
+                    val resField = Activity::class.java.getDeclaredField("mResources")
+                    resField.isAccessible = true
+                    resField.set(activity, resources)
+                    AppLogger.i(TAG, "callActivityOnCreate: mResources swapped OK for $targetPackage")
+                }
+            } catch (e: Throwable) {
+                AppLogger.e(TAG, "callActivityOnCreate: mResources swap FAILED for $targetPackage", e)
+            }
+
+            // The Activity's theme was also set up during attach() using
+            // VirtualStubActivity's manifest theme id — a number that's
+            // meaningless (or wrong) against the target's own resource
+            // table now that mResources has changed. Re-apply the TARGET's
+            // own declared theme (falling back to its Application-level
+            // theme) so styled-attribute lookups resolve correctly.
+            if (targetClass != null) {
+                try {
+                    val pm = appContext.packageManager
+                    val activityInfo = pm.getActivityInfo(
+                        android.content.ComponentName(targetPackage, targetClass), 0
+                    )
+                    val themeResId = if (activityInfo.theme != 0) activityInfo.theme
+                    else pm.getApplicationInfo(targetPackage, 0).theme
+                    if (themeResId != 0) {
+                        activity.setTheme(themeResId)
+                        AppLogger.i(TAG, "callActivityOnCreate: theme re-applied OK for $targetPackage")
+                    }
+                } catch (e: Throwable) {
+                    AppLogger.e(TAG, "callActivityOnCreate: theme re-apply FAILED for $targetPackage", e)
+                }
             }
 
             // Give the Activity the target app's own (real) Application
