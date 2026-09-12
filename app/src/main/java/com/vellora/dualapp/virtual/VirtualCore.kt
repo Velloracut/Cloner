@@ -27,6 +27,7 @@ object VirtualCore {
     /** Must be called once, e.g. from Application.onCreate() or MainActivity. */
     fun init(context: Context) {
         appContext = context.applicationContext
+        AppLogger.init(appContext)
     }
 
     /**

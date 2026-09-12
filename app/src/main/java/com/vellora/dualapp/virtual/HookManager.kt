@@ -4,7 +4,6 @@ import android.app.Instrumentation
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 
 private const val TAG = "VirtualEngine"
 
@@ -39,10 +38,10 @@ object HookManager {
             val hooked = VirtualInstrumentation(original, context.applicationContext)
             instrumentationField.set(activityThread, hooked)
             installed = true
-            Log.i(TAG, "Instrumentation hook installed OK")
+            AppLogger.i(TAG, "Instrumentation hook installed OK")
         } catch (e: Throwable) {
             installed = false
-            Log.e(TAG, "Instrumentation hook FAILED to install", e)
+            AppLogger.e(TAG, "Instrumentation hook FAILED to install", e)
         }
     }
 
@@ -56,22 +55,22 @@ object HookManager {
     fun launch(context: Context, packageName: String): Boolean {
         ensureHooksInstalled(context)
         if (!installed) {
-            Log.e(TAG, "launch($packageName) aborted — hook not installed")
+            AppLogger.e(TAG, "launch($packageName) aborted — hook not installed")
             return false
         }
 
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
         if (launchIntent == null) {
-            Log.e(TAG, "launch($packageName) — no launcher intent found")
+            AppLogger.e(TAG, "launch($packageName) — no launcher intent found")
             return false
         }
         val realComponent = launchIntent.component
         if (realComponent == null) {
-            Log.e(TAG, "launch($packageName) — launcher intent has no component")
+            AppLogger.e(TAG, "launch($packageName) — launcher intent has no component")
             return false
         }
 
-        Log.i(TAG, "launch($packageName) — real target = $realComponent")
+        AppLogger.i(TAG, "launch($packageName) — real target = $realComponent")
 
         launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, realComponent.packageName)
         launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
@@ -82,7 +81,7 @@ object HookManager {
             context.startActivity(launchIntent)
             true
         } catch (e: Throwable) {
-            Log.e(TAG, "launch($packageName) — startActivity threw", e)
+            AppLogger.e(TAG, "launch($packageName) — startActivity threw", e)
             false
         }
     }

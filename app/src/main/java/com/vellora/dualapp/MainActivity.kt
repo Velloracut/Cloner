@@ -2,6 +2,8 @@
 
 package com.vellora.dualapp
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -18,15 +20,22 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +43,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.vellora.dualapp.data.AppDatabase
 import com.vellora.dualapp.data.ClonedAppEntity
 import com.vellora.dualapp.ui.theme.DualAppTheme
+import com.vellora.dualapp.virtual.AppLogger
 import com.vellora.dualapp.virtual.VirtualCore
 import kotlinx.coroutines.launch
 
@@ -92,6 +102,7 @@ fun DualAppRoot() {
     }
 
     var showAppPicker by remember { mutableStateOf(false) }
+    var showLogs by remember { mutableStateOf(false) }
     var pendingApp by remember { mutableStateOf<InstalledApp?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -99,6 +110,7 @@ fun DualAppRoot() {
             title = "Cloned Apps",
             clonedApps = clonedApps,
             onAddClick = { showAppPicker = true },
+            onViewLogsClick = { showLogs = true },
             onRemoveClick = { app ->
                 scope.launch {
                     db.clonedAppDao().delete(
@@ -112,7 +124,7 @@ fun DualAppRoot() {
                 if (!launched) {
                     Toast.makeText(
                         context,
-                        "\"${app.label}\" launch nahi ho saki — is Android version par hooking fail hui (log check karein).",
+                        "\"${app.label}\" launch nahi ho saki — upar \"View Logs\" (ⓘ icon) dabayein.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -127,6 +139,10 @@ fun DualAppRoot() {
                 },
                 onDismiss = { showAppPicker = false }
             )
+        }
+
+        if (showLogs) {
+            LogViewerScreen(onDismiss = { showLogs = false })
         }
 
         pendingApp?.let { app ->
@@ -164,12 +180,20 @@ fun HomeScreen(
     title: String,
     clonedApps: List<ClonedApp>,
     onAddClick: () -> Unit,
+    onViewLogsClick: () -> Unit,
     onRemoveClick: (ClonedApp) -> Unit,
     onTileClick: (ClonedApp) -> Unit
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(title) })
+            TopAppBar(
+                title = { Text(title) },
+                actions = {
+                    IconButton(onClick = onViewLogsClick) {
+                        Icon(Icons.Filled.Info, contentDescription = "View Logs")
+                    }
+                }
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddClick) {
@@ -238,6 +262,55 @@ fun ClonedAppTile(app: ClonedApp, onClick: () -> Unit, onRemove: () -> Unit) {
             maxLines = 1,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+// ---------- Log viewer: in-app debug logs (no adb/logcat needed) ----------
+
+@Composable
+fun LogViewerScreen(onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var logText by remember { mutableStateOf(AppLogger.readAll()) }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text("Logs") },
+                actions = {
+                    IconButton(onClick = { logText = AppLogger.readAll() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
+                    IconButton(onClick = {
+                        val clipboard = context.getSystemService(ClipboardManager::class.java)
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Cloner logs", logText))
+                        Toast.makeText(context, "Logs copy ho gaye.", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Copy")
+                    }
+                    IconButton(onClick = {
+                        AppLogger.clear()
+                        logText = AppLogger.readAll()
+                    }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Clear")
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close")
+                    }
+                }
+            )
+            Text(
+                text = logText,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp)
+            )
+        }
     }
 }
 
