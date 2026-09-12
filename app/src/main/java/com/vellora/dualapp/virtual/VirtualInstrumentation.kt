@@ -79,6 +79,25 @@ class VirtualInstrumentation(
                 AppLogger.e(TAG, "callActivityOnCreate: base context swap FAILED for $targetPackage", e)
             }
         }
-        super.callActivityOnCreate(activity, icicle)
+
+        if (targetPackage != null) {
+            // The target Activity's own onCreate() runs inside this super
+            // call. If IT throws (missing target Application init, a
+            // resource it expects that we didn't wire up, etc.), we catch
+            // it here so the WHOLE host app doesn't crash — instead we log
+            // the real exception (visible in View Logs) and close just this
+            // one broken clone launch.
+            try {
+                super.callActivityOnCreate(activity, icicle)
+            } catch (e: Throwable) {
+                AppLogger.e(TAG, "callActivityOnCreate: target onCreate() THREW for $targetPackage", e)
+                try {
+                    activity.finish()
+                } catch (_: Throwable) {
+                }
+            }
+        } else {
+            super.callActivityOnCreate(activity, icicle)
+        }
     }
 }
