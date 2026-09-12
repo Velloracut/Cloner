@@ -120,6 +120,20 @@ class VirtualInstrumentation(
                     val themeResId = if (activityInfo.theme != 0) activityInfo.theme
                     else pm.getApplicationInfo(targetPackage, 0).theme
                     if (themeResId != 0) {
+                        // attach() already created a Theme object (mTheme)
+                        // bound to the OLD (host) Resources/AssetManager.
+                        // setTheme() alone re-applies styles onto that SAME
+                        // stale object instead of building a fresh one — so
+                        // the underlying asset lookups still hit the wrong
+                        // app's resource table. Nulling mTheme first forces
+                        // Android to build a brand new Theme against the
+                        // Resources we already swapped in above.
+                        try {
+                            val themeField = android.view.ContextThemeWrapper::class.java.getDeclaredField("mTheme")
+                            themeField.isAccessible = true
+                            themeField.set(activity, null)
+                        } catch (_: Throwable) {
+                        }
                         activity.setTheme(themeResId)
                         AppLogger.i(TAG, "callActivityOnCreate: theme re-applied OK for $targetPackage")
                     }
