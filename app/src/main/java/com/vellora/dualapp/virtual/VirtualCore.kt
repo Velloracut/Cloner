@@ -1,6 +1,9 @@
 package com.vellora.dualapp.virtual
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
+import android.os.Build
 
 /**
  * Single entry point for the whole virtualization engine. Everything the
@@ -24,11 +27,22 @@ object VirtualCore {
     private const val PREFS_NAME = "virtual_core_registry"
     private lateinit var appContext: Context
 
+    /**
+     * Best-effort "which clone is currently active" hint, updated by
+     * VirtualInstrumentation's lifecycle logging. Used only to label
+     * crash-log entries as belonging to the HOST engine vs a specific
+     * CLONE — not a precise foreground tracker (with multiple tasks it can
+     * lag behind reality), but good enough for diagnosis.
+     */
+    @Volatile
+    var activeClonePackage: String? = null
+
     /** Must be called once, e.g. from Application.onCreate() or MainActivity. */
     fun init(context: Context) {
         appContext = context.applicationContext
         AppLogger.init(appContext)
         installGlobalCrashLogger()
+        logPastProcessExits()
     }
 
     /**
@@ -38,12 +52,66 @@ object VirtualCore {
      * returned successfully) so they still get logged before the normal
      * Android crash dialog takes over — otherwise these show up as a silent
      * "app just closed" with nothing in View Logs to explain why.
+     *
+     * Labels each entry HOST or CLONE:<package> (see [activeClonePackage])
+     * so it's clear at a glance whether the engine itself broke or a
+     * specific cloned app did. Covers ANY thread, not just main — Java-level
+     * exceptions from a clone's own background threads land here too.
+     *
+     * Does NOT catch: native (JNI/C++) crashes or ANRs — those aren't
+     * thrown exceptions at all, so no UncaughtExceptionHandler can see them.
+     * [logPastProcessExits] covers those instead, retrospectively.
      */
     private fun installGlobalCrashLogger() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            AppLogger.e("VirtualEngine", "UNCAUGHT crash on thread \"${thread.name}\"", throwable)
+            val label = activeClonePackage?.let { "CLONE:$it" } ?: "HOST"
+            AppLogger.e("VirtualEngine/$label", "UNCAUGHT crash on thread \"${thread.name}\"", throwable)
             defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
+    /**
+     * ANRs and native crashes kill the process outright — nothing inside
+     * the process can log them as they happen. Android keeps its own
+     * record of why a process last exited (REASON_ANR, REASON_CRASH_NATIVE,
+     * etc.) via ApplicationExitInfo, retrievable on the NEXT cold start.
+     * This is the same mechanism Firebase Crashlytics/Play Vitals use for
+     * exactly this class of crash — there's no way to observe it live from
+     * inside the frozen/crashed process itself, only after the fact.
+     */
+    private fun logPastProcessExits() {
+        if (Build.VERSION.SDK_INT < 30) return
+        try {
+            val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val reasons = am.getHistoricalProcessExitReasons(appContext.packageName, 0, 5)
+            for (info in reasons) {
+                val reasonName = when (info.reason) {
+                    ApplicationExitInfo.REASON_ANR -> "ANR"
+                    ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"
+                    ApplicationExitInfo.REASON_CRASH -> "CRASH"
+                    else -> "exit(reason=${info.reason})"
+                }
+                AppLogger.i(
+                    "VirtualEngine/PastExit",
+                    "Previous session ended: $reasonName — ${info.description ?: "no description"} " +
+                        "(pid=${info.pid}, time=${java.util.Date(info.timestamp)})"
+                )
+                if (Build.VERSION.SDK_INT >= 31 &&
+                    (info.reason == ApplicationExitInfo.REASON_ANR ||
+                        info.reason == ApplicationExitInfo.REASON_CRASH_NATIVE)
+                ) {
+                    try {
+                        val trace = info.traceInputStream?.bufferedReader()?.readText()
+                        if (!trace.isNullOrBlank()) {
+                            AppLogger.i("VirtualEngine/PastExit", "Trace for above exit:\n$trace")
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e("VirtualEngine", "logPastProcessExits FAILED", e)
         }
     }
 

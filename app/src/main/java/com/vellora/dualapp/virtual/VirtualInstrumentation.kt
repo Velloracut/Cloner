@@ -299,6 +299,15 @@ class VirtualInstrumentation(
     private fun logLifecycle(activity: Activity, event: String) {
         val targetPackage = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
         if (targetPackage != null) {
+            if (event == "onDestroy") {
+                // Only clear back to HOST if no OTHER clone became active
+                // meanwhile (best-effort — see activeClonePackage's doc).
+                if (VirtualCore.activeClonePackage == targetPackage) {
+                    VirtualCore.activeClonePackage = null
+                }
+            } else {
+                VirtualCore.activeClonePackage = targetPackage
+            }
             AppLogger.i(TAG, "lifecycle: $event → $targetPackage (${activity.javaClass.name})")
         }
     }
