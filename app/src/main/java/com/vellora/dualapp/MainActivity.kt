@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
@@ -283,6 +284,17 @@ fun LogViewerScreen(onDismiss: () -> Unit) {
                 actions = {
                     IconButton(onClick = { logText = AppLogger.readAll() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
+                    IconButton(onClick = {
+                        val uri = AppLogger.saveToDownloads(context)
+                        Toast.makeText(
+                            context,
+                            if (uri != null) "Log file Downloads folder mein save ho gayi."
+                            else "Save nahi ho saka.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }) {
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Download log")
                     }
                     IconButton(onClick = {
                         val clipboard = context.getSystemService(ClipboardManager::class.java)

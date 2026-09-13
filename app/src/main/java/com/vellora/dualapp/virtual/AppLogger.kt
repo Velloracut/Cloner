@@ -96,4 +96,41 @@ object AppLogger {
         val file = logFile ?: return null
         return if (file.exists()) file else null
     }
+
+    /**
+     * Copies the log into the device's public Downloads folder so it shows
+     * up in any file manager / "Files" app, no share-sheet round-trip
+     * needed — just like any other downloaded file.
+     */
+    fun saveToDownloads(context: Context): android.net.Uri? {
+        val file = logFileForSharing(context) ?: return null
+        val fileName = "cloner_log_${System.currentTimeMillis()}.txt"
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                val resolver = context.contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
+                }
+                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                uri?.let {
+                    resolver.openOutputStream(it)?.use { out ->
+                        file.inputStream().use { input -> input.copyTo(out) }
+                    }
+                }
+                uri
+            } else {
+                @Suppress("DEPRECATION")
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS
+                )
+                val outFile = File(downloadsDir, fileName)
+                file.copyTo(outFile, overwrite = true)
+                android.net.Uri.fromFile(outFile)
+            }
+        } catch (e: Exception) {
+            Log.e("VirtualEngine", "saveToDownloads FAILED", e)
+            null
+        }
+    }
 }
