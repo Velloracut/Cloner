@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -289,6 +290,33 @@ fun LogViewerScreen(onDismiss: () -> Unit) {
                         Toast.makeText(context, "Logs copy ho gaye.", Toast.LENGTH_SHORT).show()
                     }) {
                         Icon(Icons.Filled.Share, contentDescription = "Copy")
+                    }
+                    IconButton(onClick = {
+                        // For big logs, clipboard copy-paste gets unwieldy —
+                        // this shares the actual log FILE via Android's
+                        // normal share sheet (WhatsApp, Telegram, Gmail,
+                        // save to Drive, etc.) using a FileProvider so the
+                        // whole thing goes across intact regardless of size.
+                        try {
+                            val file = AppLogger.logFileForSharing(context)
+                            if (file != null) {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context, "${context.packageName}.fileprovider", file
+                                )
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Log file share karein"))
+                            } else {
+                                Toast.makeText(context, "Abhi koi log file nahi hai.", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Share nahi ho saka: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }) {
+                        Icon(Icons.Filled.Send, contentDescription = "Share log file")
                     }
                     IconButton(onClick = {
                         AppLogger.clear()

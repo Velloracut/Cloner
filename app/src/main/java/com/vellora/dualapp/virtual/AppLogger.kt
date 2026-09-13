@@ -15,7 +15,13 @@ import java.util.Locale
  */
 object AppLogger {
     private const val FILE_NAME = "virtual_engine_log.txt"
-    private const val MAX_BYTES = 300_000 // trim before the file grows unbounded
+
+    // User explicitly asked for the log to capture EVERYTHING, however big
+    // it gets — bumped way up from the original 300KB so a long testing
+    // session (many launches, many crashes) doesn't get silently trimmed
+    // away mid-session. Still capped (not literally unbounded) so a
+    // runaway logging loop can't fill up the device's storage.
+    private const val MAX_BYTES = 8_000_000 // ~8 MB
 
     private var logFile: File? = null
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
@@ -50,10 +56,10 @@ object AppLogger {
             val line = StringBuilder("$time $level/$tag: $msg")
             var cause: Throwable? = t
             var depth = 0
-            while (cause != null && depth < 4) {
+            while (cause != null && depth < 8) {
                 val prefix = if (depth == 0) "" else "Caused by: "
                 line.append("\n    $prefix${cause.javaClass.name}: ${cause.message}")
-                cause.stackTrace.take(6).forEach { line.append("\n        at $it") }
+                cause.stackTrace.take(15).forEach { line.append("\n        at $it") }
                 cause = cause.cause
                 depth++
             }
@@ -82,5 +88,12 @@ object AppLogger {
             logFile?.writeText("")
         } catch (_: Exception) {
         }
+    }
+
+    /** Exposes the raw log file for FileProvider-based sharing (see MainActivity's LogViewerScreen). */
+    fun logFileForSharing(context: Context): File? {
+        init(context) // safe no-op if already initialized
+        val file = logFile ?: return null
+        return if (file.exists()) file else null
     }
 }

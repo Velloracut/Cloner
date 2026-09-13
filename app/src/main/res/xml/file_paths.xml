@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Exposes only the app's internal files dir (where AppLogger writes
+         virtual_engine_log.txt) so it can be shared via a content:// URI
+         without exposing the rest of the app's private storage. -->
+    <files-path name="logs" path="." />
+</paths>

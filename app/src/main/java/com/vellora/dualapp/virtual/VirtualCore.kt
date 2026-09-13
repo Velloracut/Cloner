@@ -58,6 +58,7 @@ object VirtualCore {
             registry().edit().putBoolean(packageName, true).apply()
             true
         } catch (e: Exception) {
+            AppLogger.e("VirtualEngine", "cloneApp($packageName) FAILED", e)
             false
         }
     }
