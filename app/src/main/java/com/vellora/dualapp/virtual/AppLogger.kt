@@ -21,8 +21,15 @@ object AppLogger {
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     fun init(context: Context) {
-        if (logFile == null) {
+        val firstInit = logFile == null
+        if (firstInit) {
             logFile = File(context.filesDir, FILE_NAME)
+            i(
+                "VirtualEngine",
+                "── App session started: Android ${android.os.Build.VERSION.RELEASE} " +
+                    "(SDK ${android.os.Build.VERSION.SDK_INT}), " +
+                    "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} ──"
+            )
         }
     }
 

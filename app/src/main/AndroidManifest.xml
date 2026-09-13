@@ -10,6 +10,39 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!--
+      CRITICAL for cloned apps: they run inside OUR process/UID, so THEIR
+      network access is governed by OUR permissions, not whatever they
+      declare in their own manifest. Missing this caused every network
+      call from every cloned app to fail (confirmed root cause of
+      InvestAndEarn's "net::ERR_CACHE_MISS" — WebView had no usable network
+      access at all, not just a cache problem).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!--
+      Same reasoning as INTERNET above: a cloned app can only ever be
+      GRANTED these at runtime (the user still sees Android's normal
+      permission popup, attributed to Cloner) if they're declared here —
+      otherwise the request silently can't even be asked for. Covers the
+      common cases (camera/mic for video/photo editors, media library
+      access, notifications, location) so we don't have to rediscover each
+      one via another crash-and-rebuild cycle.
+    -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

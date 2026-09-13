@@ -259,4 +259,60 @@ class VirtualInstrumentation(
             super.callActivityOnCreate(activity, icicle)
         }
     }
+
+    // ---------- Full lifecycle logging (the "log checker" the user wants) ----------
+    // These are all normal public Instrumentation methods (not hidden APIs),
+    // so plain `override` works fine — no signature-matching trick needed
+    // here. Wrapping each in try/catch means a crash at ANY lifecycle stage
+    // (not just onCreate) gets a clear, labeled entry in View Logs instead
+    // of just a generic uncaught-exception dump, and doesn't take the whole
+    // host app down with it.
+
+    override fun callActivityOnStart(activity: Activity) {
+        logLifecycle(activity, "onStart")
+        runTargetLifecycle(activity, "onStart") { super.callActivityOnStart(activity) }
+    }
+
+    override fun callActivityOnResume(activity: Activity) {
+        logLifecycle(activity, "onResume")
+        runTargetLifecycle(activity, "onResume") { super.callActivityOnResume(activity) }
+    }
+
+    override fun callActivityOnPause(activity: Activity) {
+        logLifecycle(activity, "onPause")
+        runTargetLifecycle(activity, "onPause") { super.callActivityOnPause(activity) }
+    }
+
+    override fun callActivityOnStop(activity: Activity) {
+        logLifecycle(activity, "onStop")
+        runTargetLifecycle(activity, "onStop") { super.callActivityOnStop(activity) }
+    }
+
+    override fun callActivityOnDestroy(activity: Activity) {
+        logLifecycle(activity, "onDestroy")
+        runTargetLifecycle(activity, "onDestroy") { super.callActivityOnDestroy(activity) }
+    }
+
+    private fun isOurClone(activity: Activity): Boolean =
+        activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE) != null
+
+    private fun logLifecycle(activity: Activity, event: String) {
+        val targetPackage = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
+        if (targetPackage != null) {
+            AppLogger.i(TAG, "lifecycle: $event → $targetPackage (${activity.javaClass.name})")
+        }
+    }
+
+    /** Only intercepts (try/catch's) lifecycle calls for OUR cloned activities — everything else (our own MainActivity etc.) runs completely untouched. */
+    private inline fun runTargetLifecycle(activity: Activity, event: String, block: () -> Unit) {
+        if (!isOurClone(activity)) {
+            block()
+            return
+        }
+        try {
+            block()
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "lifecycle: $event THREW for cloned activity ${activity.javaClass.name}", e)
+        }
+    }
 }

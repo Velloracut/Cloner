@@ -53,6 +53,7 @@ object HookManager {
      * those back and instantiates the real target Activity in its place.
      */
     fun launch(context: Context, packageName: String): Boolean {
+        AppLogger.i(TAG, "════════ NEW LAUNCH: $packageName ════════")
         ensureHooksInstalled(context)
         if (!installed) {
             AppLogger.e(TAG, "launch($packageName) aborted — hook not installed")
