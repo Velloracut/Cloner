@@ -75,9 +75,24 @@ object ActivityLaunchHook {
     private const val LAUNCH_ACTIVITY = 100
     private const val EXECUTE_TRANSACTION = 159
 
+    /**
+     * Quick kill-switch for testing — flip to false (and rebuild) to
+     * instantly go back to the old manual-swap-only behavior without
+     * touching HookManager or reverting any commit. Useful while this
+     * hook is still being validated against real devices/Android
+     * versions: if a regression shows up, set this false, rebuild, and
+     * confirm the OLD behavior is restored — that isolates whether THIS
+     * hook is the cause before digging into field-shape mismatches.
+     */
+    var enabled = true
+
     private var installed = false
 
     fun ensureInstalled(context: Context) {
+        if (!enabled) {
+            AppLogger.i(TAG, "ActivityLaunchHook: disabled via kill-switch — skipping install")
+            return
+        }
         if (installed) return
         try {
             val activityThreadClass = Class.forName("android.app.ActivityThread")
@@ -137,25 +152,42 @@ object ActivityLaunchHook {
         // otherwise reachable without matching reflection on both sides).
         if (recordClass.simpleName != "ActivityClientRecord") return
 
+        // Find BOTH fields first, before touching anything. Mutating the
+        // Intent's component and only THEN discovering the ActivityInfo
+        // field can't be found would leave component pointing at the
+        // target while activityInfo still says host — that mismatch
+        // ClassNotFoundExceptions EVERY launch, not just this one.
         val intentField = findField(recordClass, Intent::class.java) ?: run {
             AppLogger.e(TAG, "ActivityLaunchHook: no Intent field on ActivityClientRecord — API shape changed?")
             return
         }
-        val intent = intentField.get(record) as? Intent ?: return
+        val infoField = findField(recordClass, ActivityInfo::class.java) ?: run {
+            AppLogger.e(
+                TAG,
+                "ActivityLaunchHook: no ActivityInfo field on ActivityClientRecord — API shape changed? " +
+                    "Aborting patch, leaving this launch untouched (manual-swap fallback will handle it)."
+            )
+            return
+        }
 
+        val intent = intentField.get(record) as? Intent ?: return
         val realComponent = extractRedirectTarget(intent) ?: return
         val realActivityInfo = resolveActivityInfo(context, realComponent) ?: return
 
-        intent.component = realComponent
-        intent.putExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, true)
-
-        val infoField = findField(recordClass, ActivityInfo::class.java) ?: run {
-            AppLogger.e(TAG, "ActivityLaunchHook: no ActivityInfo field on ActivityClientRecord — API shape changed?")
-            return
+        val originalComponent = intent.component
+        try {
+            intent.component = realComponent
+            infoField.set(record, realActivityInfo)
+            intent.putExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, true)
+            AppLogger.i(TAG, "ActivityLaunchHook: legacy LAUNCH_ACTIVITY patched OK → $realComponent")
+        } catch (e: Throwable) {
+            // Roll back the Intent so this launch falls through to the
+            // OLD manual-swap path instead of a half-patched, guaranteed-
+            // to-crash state.
+            intent.component = originalComponent
+            intent.removeExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED)
+            AppLogger.e(TAG, "ActivityLaunchHook: mutation FAILED mid-patch — rolled back to unpatched state", e)
         }
-        infoField.set(record, realActivityInfo)
-
-        AppLogger.i(TAG, "ActivityLaunchHook: legacy LAUNCH_ACTIVITY patched OK → $realComponent")
     }
 
     private fun patchClientTransaction(context: Context, msg: Message) {
@@ -178,25 +210,40 @@ object ActivityLaunchHook {
     private fun patchLaunchActivityItem(context: Context, item: Any) {
         val itemClass = item.javaClass
 
+        // Same ordering fix as patchLegacyLaunch: find BOTH fields before
+        // mutating anything, so a lookup failure aborts cleanly instead of
+        // leaving the Intent's component pointed at the target while
+        // ActivityInfo still says host — that mismatch is what was
+        // crashing EVERY clone launch (including previously-working ones)
+        // after this hook was first added.
         val intentField = findField(itemClass, Intent::class.java) ?: run {
             AppLogger.e(TAG, "ActivityLaunchHook: no Intent field on LaunchActivityItem — API shape changed?")
             return
         }
-        val intent = intentField.get(item) as? Intent ?: return
+        val infoField = findField(itemClass, ActivityInfo::class.java) ?: run {
+            AppLogger.e(
+                TAG,
+                "ActivityLaunchHook: no ActivityInfo field on LaunchActivityItem — API shape changed? " +
+                    "Aborting patch, leaving this launch untouched (manual-swap fallback will handle it)."
+            )
+            return
+        }
 
+        val intent = intentField.get(item) as? Intent ?: return
         val realComponent = extractRedirectTarget(intent) ?: return
         val realActivityInfo = resolveActivityInfo(context, realComponent) ?: return
 
-        intent.component = realComponent
-        intent.putExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, true)
-
-        val infoField = findField(itemClass, ActivityInfo::class.java) ?: run {
-            AppLogger.e(TAG, "ActivityLaunchHook: no ActivityInfo field on LaunchActivityItem — API shape changed?")
-            return
+        val originalComponent = intent.component
+        try {
+            intent.component = realComponent
+            infoField.set(item, realActivityInfo)
+            intent.putExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, true)
+            AppLogger.i(TAG, "ActivityLaunchHook: ClientTransaction/LaunchActivityItem patched OK → $realComponent")
+        } catch (e: Throwable) {
+            intent.component = originalComponent
+            intent.removeExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED)
+            AppLogger.e(TAG, "ActivityLaunchHook: mutation FAILED mid-patch — rolled back to unpatched state", e)
         }
-        infoField.set(item, realActivityInfo)
-
-        AppLogger.i(TAG, "ActivityLaunchHook: ClientTransaction/LaunchActivityItem patched OK → $realComponent")
     }
 
     /** Only redirect launches WE created (see HookManager.launch) — recognized by our own extras. */
