@@ -15,6 +15,21 @@ private const val TAG = "VirtualEngine"
 object VirtualConstants {
     const val EXTRA_TARGET_PACKAGE = "com.vellora.dualapp.virtual.EXTRA_TARGET_PACKAGE"
     const val EXTRA_TARGET_CLASS = "com.vellora.dualapp.virtual.EXTRA_TARGET_CLASS"
+
+    /**
+     * Set by [ActivityLaunchHook] the moment it successfully patches this
+     * launch's ActivityClientRecord/LaunchActivityItem BEFORE attach() runs
+     * (see that file for the full mechanism). When present, the Activity's
+     * Context/Resources/ClassLoader/Application are ALREADY real — attach()
+     * itself, and the target's own attachBaseContext(), ran against the
+     * genuine target LoadedApk, not our host stub. VirtualInstrumentation
+     * checks this to skip its old manual context/resources/theme/fake-
+     * Application swap (now redundant, and would only interfere) and just
+     * layer the storage sandbox on top instead. Absent (or false) means the
+     * hook didn't install or didn't match this launch — the old manual-swap
+     * fallback path runs unchanged, exactly as before this change.
+     */
+    const val EXTRA_REAL_HOOK_APPLIED = "com.vellora.dualapp.virtual.EXTRA_REAL_HOOK_APPLIED"
 }
 
 /**
@@ -117,7 +132,24 @@ class VirtualInstrumentation(
     override fun newActivity(cl: ClassLoader, className: String, intent: Intent?): Activity {
         val targetPackage = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
         val targetClass = intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_CLASS)
-        AppLogger.i(TAG, "newActivity: className=$className targetPackage=$targetPackage targetClass=$targetClass")
+        val realHookApplied = intent?.getBooleanExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, false) == true
+        AppLogger.i(
+            TAG,
+            "newActivity: className=$className targetPackage=$targetPackage " +
+                "targetClass=$targetClass realHookApplied=$realHookApplied"
+        )
+
+        if (realHookApplied) {
+            // ActivityLaunchHook already rewrote the pending
+            // ActivityClientRecord/LaunchActivityItem's Intent component
+            // AND ActivityInfo before ActivityThread built this call's
+            // args — so `cl` is already the target's REAL classloader
+            // (from its real LoadedApk) and `className` is already the
+            // target's real Activity class name. Nothing left to swap;
+            // swapping again here would be redundant at best.
+            return super.newActivity(cl, className, intent)
+        }
+
         if (targetPackage != null && targetClass != null) {
             val targetLoader = VirtualPackageManager.classLoaderFor(appContext, targetPackage)
             if (targetLoader != null) {
@@ -138,16 +170,60 @@ class VirtualInstrumentation(
     override fun callActivityOnCreate(activity: Activity, icicle: Bundle?) {
         val targetPackage = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_PACKAGE)
         val targetClass = activity.intent?.getStringExtra(VirtualConstants.EXTRA_TARGET_CLASS)
-        if (targetPackage != null) {
+        val realHookApplied = activity.intent
+            ?.getBooleanExtra(VirtualConstants.EXTRA_REAL_HOOK_APPLIED, false) == true
+
+        if (targetPackage != null && realHookApplied) {
+            // ROOT-FIX PATH: ActivityLaunchHook already made ActivityThread
+            // build a REAL target LoadedApk/Context/ClassLoader before
+            // attach() ran — so by now the target's OWN attachBaseContext()
+            // (and its real Application's attach/onCreate) already executed
+            // correctly, against correct package identity/resources. That
+            // was exactly the missing piece traced from the Alibaba NPE
+            // (attachBaseContext ran too early, against the wrong host
+            // context) and the Quran Resources.NotFoundException (stale
+            // resource table from that same wrong-context first pass).
+            //
+            // Only thing still needed: storage sandboxing. The real
+            // Context's getFilesDir()/getSharedPreferences()/etc. point at
+            // the TARGET package's actual system data dir — our process's
+            // real UID has no permission to write there. Wrap (don't
+            // replace) the already-correct base with a thin storage-only
+            // redirector so clones of the same package still get separate
+            // data, without touching anything else that's now correct.
+            try {
+                val contextWrapperClass = Class.forName("android.content.ContextWrapper")
+                val baseField = contextWrapperClass.getDeclaredField("mBase")
+                baseField.isAccessible = true
+                val realTargetBase = baseField.get(activity) as Context
+                baseField.set(activity, VirtualStorageContext(realTargetBase, appContext, targetPackage))
+                AppLogger.i(
+                    TAG,
+                    "callActivityOnCreate: [real-hook path] storage sandbox wrapped OK for $targetPackage"
+                )
+            } catch (e: Throwable) {
+                AppLogger.e(
+                    TAG,
+                    "callActivityOnCreate: [real-hook path] storage sandbox wrap FAILED for $targetPackage",
+                    e
+                )
+            }
+        } else if (targetPackage != null) {
+            // FALLBACK PATH — ActivityLaunchHook didn't install or didn't
+            // match this particular launch (old OEM ROM, unexpected
+            // Handler/ClientTransaction shape, etc.). Exactly the same
+            // manual swap as before this change, unchanged, as a safety
+            // net so a hook failure degrades to "as good as it already
+            // was" rather than to a broken launch.
             try {
                 val contextWrapperClass = Class.forName("android.content.ContextWrapper")
                 val baseField = contextWrapperClass.getDeclaredField("mBase")
                 baseField.isAccessible = true
                 val realBase = baseField.get(activity) as Context
                 baseField.set(activity, VirtualContext(realBase, targetPackage))
-                AppLogger.i(TAG, "callActivityOnCreate: base context swapped OK for $targetPackage")
+                AppLogger.i(TAG, "callActivityOnCreate: [fallback path] base context swapped OK for $targetPackage")
             } catch (e: Throwable) {
-                AppLogger.e(TAG, "callActivityOnCreate: base context swap FAILED for $targetPackage", e)
+                AppLogger.e(TAG, "callActivityOnCreate: [fallback path] base context swap FAILED for $targetPackage", e)
             }
 
             // Activity caches its OWN Resources reference in a private

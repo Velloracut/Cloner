@@ -61,3 +61,52 @@ class VirtualContext(
     override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
         super.getSharedPreferences("virtual_${targetPackage}_$name", mode)
 }
+
+/**
+ * Storage-only counterpart to [VirtualContext], used when
+ * [ActivityLaunchHook] already made [base] a REAL, correctly-identified
+ * target Context (real package name, real resources, real classloader —
+ * all handled natively by Android's own attach() machinery). Package
+ * identity/resources/classloader are already right, so this wrapper does
+ * NOT override getPackageName()/getResources()/getClassLoader() at all —
+ * those simply fall through to [base] via normal ContextWrapper delegation.
+ * It only redirects storage, which is the one thing a real target Context
+ * can't safely give us (its real system data dir belongs to a different
+ * UID than our actual running process).
+ */
+class VirtualStorageContext(
+    base: Context,
+    private val hostContext: Context,
+    private val targetPackage: String
+) : ContextWrapper(base) {
+
+    // IMPORTANT: sandboxRoot must be anchored to the HOST app's own real
+    // filesDir (a directory our actual process UID can write to) — NOT
+    // base.filesDir, which now resolves through the target's REAL
+    // ContextImpl to the target package's own system data dir (a
+    // different UID's private storage our process has no permission to
+    // touch). This is exactly the bug this class exists to avoid.
+    private val sandboxDir: File by lazy {
+        VirtualPackageManager.sandboxRoot(hostContext, targetPackage)
+    }
+
+    override fun getFilesDir(): File =
+        File(sandboxDir, "files").apply { mkdirs() }
+
+    override fun getCacheDir(): File =
+        File(sandboxDir, "cache").apply { mkdirs() }
+
+    override fun getDatabasePath(name: String): File {
+        val dbDir = File(sandboxDir, "databases").apply { mkdirs() }
+        return File(dbDir, name)
+    }
+
+    override fun openOrCreateDatabase(
+        name: String,
+        mode: Int,
+        factory: SQLiteDatabase.CursorFactory?
+    ): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name), null)
+
+    override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+        super.getSharedPreferences("virtual_${targetPackage}_$name", mode)
+}

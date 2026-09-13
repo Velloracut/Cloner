@@ -39,6 +39,16 @@ object HookManager {
             instrumentationField.set(activityThread, hooked)
             installed = true
             AppLogger.i(TAG, "Instrumentation hook installed OK")
+
+            // Root-fix hook (see ActivityLaunchHook for full mechanism):
+            // patches the pending launch's Intent/ActivityInfo BEFORE
+            // attach() runs, so Android's own machinery builds a real
+            // target Context/Resources/ClassLoader/Application. Installed
+            // separately and independently — if THIS fails for any reason,
+            // VirtualInstrumentation's older manual swap still runs
+            // unchanged, so a failure here never breaks a launch that
+            // used to work.
+            ActivityLaunchHook.ensureInstalled(context)
         } catch (e: Throwable) {
             installed = false
             AppLogger.e(TAG, "Instrumentation hook FAILED to install", e)
