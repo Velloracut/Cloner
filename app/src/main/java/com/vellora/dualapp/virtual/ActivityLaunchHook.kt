@@ -84,7 +84,20 @@ object ActivityLaunchHook {
      * confirm the OLD behavior is restored — that isolates whether THIS
      * hook is the cause before digging into field-shape mismatches.
      */
-    var enabled = true
+    var enabled = false // DISABLED: this "real Context" approach makes Android's
+    // system-level security checks (assertPackageMatchesCallingUid, Settings
+    // access, etc.) see the clone as if it genuinely WERE the target package
+    // — but our real OS process UID is always the host app's. Any system
+    // call that cross-checks calling-UID against claimed package identity
+    // (starting another activity, reading Settings.Global — which BluePrint
+    // and Asaloun both hit via completely ordinary code paths) now fails
+    // with "Package X does not belong to uid Y". This broke apps that
+    // worked fine under the simpler manual Context-swap approach (BluePrint,
+    // InvestAndEarn) while only partially helping the harder cases (Alibaba,
+    // Asaloun) it was meant to fix. Net effect on real testing: negative.
+    // Left in place (not deleted) for future work — the underlying resource-
+    // ID diagnosis this was built on is correct, just this specific
+    // implementation trades one class of bugs for a broader one.
 
     private var installed = false
 

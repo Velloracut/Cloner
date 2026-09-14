@@ -15,6 +15,8 @@ private const val TAG = "VirtualEngine"
 object VirtualConstants {
     const val EXTRA_TARGET_PACKAGE = "com.vellora.dualapp.virtual.EXTRA_TARGET_PACKAGE"
     const val EXTRA_TARGET_CLASS = "com.vellora.dualapp.virtual.EXTRA_TARGET_CLASS"
+    /** Set by ActivityLaunchHook once it has rewritten a launch message to point at the real target component. */
+    const val EXTRA_REAL_HOOK_APPLIED = "com.vellora.dualapp.virtual.EXTRA_REAL_HOOK_APPLIED"
 }
 
 /**
