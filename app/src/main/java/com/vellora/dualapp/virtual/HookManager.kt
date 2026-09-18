@@ -81,10 +81,30 @@ object HookManager {
             return false
         }
 
-        AppLogger.i(TAG, "launch($packageName) — real target = $realComponent")
+        // Some apps (Opera confirmed in testing) declare their launcher as
+        // an <activity-alias> — PackageManager resolves the launch intent
+        // to the ALIAS's component name, but there's no real compiled class
+        // by that name (it's just a manifest indirection), so trying to
+        // load it directly throws ClassNotFoundException. The alias's
+        // ActivityInfo.targetActivity field holds the REAL class name we
+        // actually need to load.
+        val resolvedClassName = try {
+            val info = context.packageManager.getActivityInfo(realComponent, 0)
+            if (!info.targetActivity.isNullOrBlank()) {
+                AppLogger.i(TAG, "launch($packageName) — ${realComponent.className} is an alias for ${info.targetActivity}")
+                info.targetActivity
+            } else {
+                realComponent.className
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "launch($packageName) — activity-alias resolution failed, using original class name", e)
+            realComponent.className
+        }
+
+        AppLogger.i(TAG, "launch($packageName) — real target = $realComponent (resolved class = $resolvedClassName)")
 
         launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_PACKAGE, realComponent.packageName)
-        launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, realComponent.className)
+        launchIntent.putExtra(VirtualConstants.EXTRA_TARGET_CLASS, resolvedClassName)
         launchIntent.component = ComponentName(context.packageName, VirtualStubActivity::class.java.name)
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
 
