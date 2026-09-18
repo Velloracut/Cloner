@@ -71,4 +71,11 @@ dependencies {
     // fragile meta-reflection trick — some Android versions now
     // force-blacklist the exact method our old hand-rolled version relied on).
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
+
+    // Needed so we can proactively call WorkManager.initialize() ourselves
+    // for cloned apps — their own auto-init (a ContentProvider Android
+    // creates automatically during a NORMAL app launch) never runs here
+    // since we skip full ContentProvider bootstrapping. Confirmed crash:
+    // "WorkManager is not initialized properly" in Gallery app's onCreate().
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 }

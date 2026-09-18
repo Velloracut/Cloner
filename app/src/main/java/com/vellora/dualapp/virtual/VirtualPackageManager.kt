@@ -98,26 +98,84 @@ object VirtualPackageManager {
      * Same split-APK reasoning as classLoaderFor(): resources for
      * density/language/feature splits live in their own split_*.apk, not
      * base.apk, so every split's asset path needs adding too.
+     *
+     * On API 28+ this uses the modern AssetManager.Builder/ApkAssets path
+     * (the same machinery Android itself uses internally since the
+     * "AssetManager2" rewrite) instead of the legacy bare
+     * `new AssetManager()` + `addAssetPath()` reflection trick. Several
+     * different apps (Asaloun, Opera, Gallery) hit
+     * Resources.NotFoundException for DIFFERENT specific resource IDs even
+     * though resourcesFor() itself reported success each time — a pattern
+     * that points at the legacy AssetManager not fully integrating with
+     * Android's newer resource-resolution internals (which some framework
+     * code paths, e.g. OverrideResources, expect), rather than each being a
+     * one-off per-app bug. The modern Builder path is the more "real" way
+     * Android itself loads resources, so it's the more likely fix — but
+     * this is a genuine experiment, not a confirmed root-cause fix.
      */
     @Suppress("DEPRECATION")
     fun resourcesFor(context: Context, packageName: String): Resources? {
         resourcesCache[packageName]?.let { return it }
         return try {
             val apkPaths = apkPathsFor(context, packageName)
-            val assetManager = AssetManager::class.java.newInstance()
-            val addAssetPath = AssetManager::class.java.getDeclaredMethod(
-                "addAssetPath", String::class.java
-            )
-            addAssetPath.isAccessible = true
-            apkPaths.forEach { path -> addAssetPath.invoke(assetManager, path) }
-
             val hostRes = context.resources
+
+            val assetManager: AssetManager =
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    buildAssetManagerModern(apkPaths) ?: buildAssetManagerLegacy(apkPaths)
+                } else {
+                    buildAssetManagerLegacy(apkPaths)
+                }
+
             val resources = Resources(assetManager, hostRes.displayMetrics, hostRes.configuration)
             resourcesCache[packageName] = resources
             AppLogger.i(TAG, "resourcesFor($packageName) OK — ${apkPaths.size} apk(s)")
             resources
         } catch (e: Exception) {
             AppLogger.e(TAG, "resourcesFor($packageName) FAILED", e)
+            null
+        }
+    }
+
+    private fun buildAssetManagerLegacy(apkPaths: List<String>): AssetManager {
+        val assetManager = AssetManager::class.java.newInstance()
+        val addAssetPath = AssetManager::class.java.getDeclaredMethod(
+            "addAssetPath", String::class.java
+        )
+        addAssetPath.isAccessible = true
+        apkPaths.forEach { path -> addAssetPath.invoke(assetManager, path) }
+        return assetManager
+    }
+
+    /** Modern (API 28+) ApkAssets + AssetManager.Builder path. Returns null on any failure so the caller falls back to the legacy path. */
+    private fun buildAssetManagerModern(apkPaths: List<String>): AssetManager? {
+        return try {
+            val apkAssetsClass = Class.forName("android.content.res.ApkAssets")
+            val loadFromPath = apkAssetsClass.getDeclaredMethod("loadFromPath", String::class.java)
+            loadFromPath.isAccessible = true
+
+            val apkAssetsObjects = apkPaths.mapNotNull { path ->
+                try {
+                    loadFromPath.invoke(null, path)
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "ApkAssets.loadFromPath FAILED for $path", e)
+                    null
+                }
+            }
+            if (apkAssetsObjects.isEmpty()) return null
+
+            val builderClass = Class.forName("android.content.res.AssetManager\$Builder")
+            val builder = builderClass.getDeclaredConstructor().newInstance()
+            val addApkAssets = builderClass.getDeclaredMethod("addApkAssets", apkAssetsClass)
+            addApkAssets.isAccessible = true
+            for (apkAssets in apkAssetsObjects) {
+                addApkAssets.invoke(builder, apkAssets)
+            }
+            val build = builderClass.getDeclaredMethod("build")
+            build.isAccessible = true
+            build.invoke(builder) as AssetManager
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "buildAssetManagerModern FAILED, will fall back to legacy", e)
             null
         }
     }
@@ -147,6 +205,7 @@ object VirtualPackageManager {
                 .getDeclaredMethod("attachBaseContext", Context::class.java)
             attachMethod.isAccessible = true
             attachMethod.invoke(app, virtualContext)
+            ensureWorkManagerInitialized(virtualContext)
 
             app.onCreate()
             applicationCache[packageName] = app
@@ -155,6 +214,28 @@ object VirtualPackageManager {
         } catch (e: Throwable) {
             AppLogger.e(TAG, "applicationFor($packageName) FAILED", e)
             null
+        }
+    }
+
+    /**
+     * A normal app launch creates a special ContentProvider
+     * (WorkManagerInitializer) automatically before Application.onCreate()
+     * runs, which is how WorkManager usually gets initialized. Since we
+     * skip full ContentProvider bootstrapping entirely, any cloned app that
+     * uses WorkManager (common in AndroidX-based apps for background work)
+     * crashes the moment its own Application.onCreate() touches it.
+     * Pre-empting it ourselves is harmless even for apps that never use
+     * WorkManager — it's a cheap no-op componentst in that case.
+     */
+    private fun ensureWorkManagerInitialized(context: Context) {
+        try {
+            val config = androidx.work.Configuration.Builder().build()
+            androidx.work.WorkManager.initialize(context, config)
+        } catch (e: IllegalStateException) {
+            // Already initialized (e.g. cached VirtualContext reused across
+            // launches) — fine, ignore.
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "ensureWorkManagerInitialized FAILED (non-fatal)", e)
         }
     }
 }
