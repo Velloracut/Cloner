@@ -268,18 +268,23 @@ class VirtualInstrumentation(
                 // called through to super.onCreate() — if the target's own
                 // code has a guard clause that returns early without doing
                 // so (e.g. "if invalid state, skip init"), Android throws
-                // SuperNotCalledException itself, uncatchable by us since it
-                // happens AFTER we return. Detecting the same flag here and
-                // finishing proactively avoids that crash — confirmed case:
-                // Gallery app's HomeActivity did exactly this.
+                // SuperNotCalledException itself from INSIDE
+                // ActivityThread.performLaunchActivity(), AFTER this
+                // function has already returned — completely outside any
+                // try/catch we can place. Calling activity.finish() does
+                // NOT prevent that check from firing (confirmed by testing
+                // — it crashed anyway). The only way to stop it is to make
+                // the check itself pass: force the same mCalled flag that
+                // super.onCreate() would have set. Confirmed case: Gallery
+                // app's HomeActivity does this.
                 val calledField = Activity::class.java.getDeclaredField("mCalled")
                 calledField.isAccessible = true
                 if (!calledField.getBoolean(activity)) {
                     AppLogger.e(
                         TAG,
-                        "callActivityOnCreate: target onCreate() for $targetPackage did NOT call super.onCreate() — finishing to avoid SuperNotCalledException"
+                        "callActivityOnCreate: target onCreate() for $targetPackage did NOT call super.onCreate() — forcing mCalled=true to avoid SuperNotCalledException (which would otherwise kill the WHOLE host app, not just this clone)"
                     )
-                    activity.finish()
+                    calledField.setBoolean(activity, true)
                 }
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "callActivityOnCreate: target onCreate() THREW for $targetPackage", e)
@@ -353,6 +358,25 @@ class VirtualInstrumentation(
         }
         try {
             block()
+            // Same "did you call super?" check Android runs after EVERY
+            // lifecycle callback (onCreate, onStart, onResume, onPause,
+            // onStop, onDestroy all share this one mCalled flag) — if the
+            // target's own code skips the super call under some condition,
+            // Android throws SuperNotCalledException from INSIDE
+            // ActivityThread itself, completely outside this try/catch,
+            // which kills the ENTIRE host process (not just this one
+            // clone) since nothing can catch it there. Forcing the flag
+            // true here is the only way to stop that — confirmed cases:
+            // Gallery's onCreate, Asaloun's GetMediaActivity onDestroy.
+            try {
+                val calledField = Activity::class.java.getDeclaredField("mCalled")
+                calledField.isAccessible = true
+                if (!calledField.getBoolean(activity)) {
+                    AppLogger.e(TAG, "lifecycle: $event for ${activity.javaClass.name} did NOT call super — forcing mCalled=true")
+                    calledField.setBoolean(activity, true)
+                }
+            } catch (_: Throwable) {
+            }
         } catch (e: Throwable) {
             AppLogger.e(TAG, "lifecycle: $event THREW for cloned activity ${activity.javaClass.name}", e)
         }
