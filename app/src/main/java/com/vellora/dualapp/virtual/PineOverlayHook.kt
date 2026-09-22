@@ -1,7 +1,7 @@
 package com.vellora.dualapp.virtual
 
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
+import de.robv.android.xposed.XposedBridge
 import java.io.IOException
 
 private const val TAG = "VirtualEngine"
@@ -45,12 +45,9 @@ object PineOverlayHook {
             val pineClass = Class.forName("top.canyie.pine.Pine")
             AppLogger.i(TAG, "PineOverlayHook: Pine class found, attempting hook")
 
-            XposedHelpers.findAndHookMethod(
-                "android.content.res.ApkAssets",
-                javaClass.classLoader,
+            XposedBridge.hookAllMethods(
+                Class.forName("android.content.res.ApkAssets"),
                 "loadOverlayFromPath",
-                String::class.java,
-                Boolean::class.javaPrimitiveType,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val path = param.args.getOrNull(0) as? String

@@ -264,6 +264,23 @@ class VirtualInstrumentation(
             // one broken clone launch.
             try {
                 super.callActivityOnCreate(activity, freshIcicle)
+                // Android checks (right after this returns) that onCreate()
+                // called through to super.onCreate() — if the target's own
+                // code has a guard clause that returns early without doing
+                // so (e.g. "if invalid state, skip init"), Android throws
+                // SuperNotCalledException itself, uncatchable by us since it
+                // happens AFTER we return. Detecting the same flag here and
+                // finishing proactively avoids that crash — confirmed case:
+                // Gallery app's HomeActivity did exactly this.
+                val calledField = Activity::class.java.getDeclaredField("mCalled")
+                calledField.isAccessible = true
+                if (!calledField.getBoolean(activity)) {
+                    AppLogger.e(
+                        TAG,
+                        "callActivityOnCreate: target onCreate() for $targetPackage did NOT call super.onCreate() — finishing to avoid SuperNotCalledException"
+                    )
+                    activity.finish()
+                }
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "callActivityOnCreate: target onCreate() THREW for $targetPackage", e)
                 try {
