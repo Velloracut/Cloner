@@ -78,4 +78,17 @@ dependencies {
     // since we skip full ContentProvider bootstrapping. Confirmed crash:
     // "WorkManager is not initialized properly" in Gallery app's onCreate().
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Pine: real ART-level method hooking (Xposed-API compatible), used
+    // ONLY for android.content.res.ApkAssets.loadOverlayFromPath — a
+    // static method our normal reflection-subclass trick can't intercept.
+    // Confirmed root cause (via BlackBox's source + our own crash logs
+    // across 3 different apps) of the recurring Resources.NotFoundException
+    // crashes: the framework tries to apply an OEM Runtime Resource Overlay
+    // that doesn't correctly map onto our virtualized AssetManager. Pine
+    // does NOT replace anything else in the engine — it's scoped to this
+    // one confirmed problem.
+    compileOnly("de.robv.android.xposed:api:82")
+    implementation("top.canyie.pine:core:0.3.0")
+    implementation("top.canyie.pine:xposed:0.2.0")
 }

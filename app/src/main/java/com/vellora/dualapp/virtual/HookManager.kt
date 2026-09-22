@@ -49,6 +49,11 @@ object HookManager {
             // unchanged, so a failure here never breaks a launch that
             // used to work.
             ActivityLaunchHook.ensureInstalled(context)
+
+            // Narrow, targeted Pine hook — see PineOverlayHook for exactly
+            // what and why. Independent of everything above: if this fails,
+            // nothing else here is affected.
+            PineOverlayHook.install()
         } catch (e: Throwable) {
             installed = false
             AppLogger.e(TAG, "Instrumentation hook FAILED to install", e)
